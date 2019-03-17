@@ -1,0 +1,18 @@
+[package]
+name = "flighty"
+version = "0.1.0"
+authors = ["tstellanova <tstellanova@users.noreply.github.com>"]
+edition = "2018"
+
+[dependencies]
+nalgebra = "0.17.2"
+#nphysics3d = "0.10.3"
+
+
+[dependencies.sensulator]
+#git = "https://github.com/tstellanova/sensulator.git"
+path = "../sensulator"
+
+[dependencies.num]
+version = "0.2"
+default-features = false
