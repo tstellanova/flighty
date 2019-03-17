@@ -20,11 +20,12 @@ const ACCEL_REL_ERR : AccelUnits = 0.0000267;
 const MAG_REL_ERR : MagUnits = 0.0000265;
 const GPS_DEGREES_REL_ERR: LatLonUnits =  1E-5;
 const GPS_ALTITUDE_REL_ERR: DistanceUnits = 1.0;
-const ALT_REL_ERR: DistanceUnits = 1.5;
+//const ALT_REL_ERR: DistanceUnits = 1.5;
 const DIFF_PRESS_REL_ERR: PressureUnits = 1E-3;
 
+const AIR_PRESS_REL_ERR: PressureUnits = 1E-3;
 
-const GAS_CONSTANT_R: f32 = 287.05;
+const GAS_CONSTANT_R1: f32 = 287.05;
 
 // 101325 Pascals in millibars
 pub const SEA_LEVEL_AIR_PRESSURE: PressureUnits = 1013.25;
@@ -98,9 +99,9 @@ impl SensorLike for AccelSensor {
 
     fn update(&mut self, state: &VirtualVehicleState)  -> &mut Self {
         //TODO functionalize this?
-        self.senso.inner[0].set_center_value(state.body_accel[0]);
-        self.senso.inner[1].set_center_value(state.body_accel[1]);
-        self.senso.inner[2].set_center_value(state.body_accel[2]);
+        self.senso.inner[0].set_center_value(state.inertial_accel[0]);
+        self.senso.inner[1].set_center_value(state.inertial_accel[1]);
+        self.senso.inner[2].set_center_value(state.inertial_accel[2]);
         self
     }
 }
@@ -170,7 +171,7 @@ impl SensorLike for AirspeedSensor {
         self.airspeed =  state.relative_airspeed;
         self.alt_pressure = state.local_air_pressure;
         //R = 287.05 J/(kg*degK)  for dry air
-        let air_density_rho = self.alt_pressure / (GAS_CONSTANT_R * state.base_temperature);
+        let air_density_rho = self.alt_pressure / (GAS_CONSTANT_R1 * state.base_temperature);
 
         // veloctiy = sqrt ( (2/rho) * (Ptotal - Pstatic) )
         // vel^2 = (2/rho) * DP
@@ -190,3 +191,29 @@ impl  AirspeedSensor {
 
 
 
+/**
+Sensor for ambient air pressure.
+Normally corresponds to altitude, temperature, and humidity.
+*/
+pub struct AirPressureSensor {
+    pressure: Sensulator,
+}
+
+
+impl SensorLike for AirPressureSensor {
+    fn new() -> Self {
+        AirPressureSensor {
+            pressure: Sensulator::new(0.0, 0.0, AIR_PRESS_REL_ERR),
+        }
+    }
+
+    fn update(&mut self, state: &VirtualVehicleState) -> &mut Self {
+        self.pressure.set_center_value(state.local_air_pressure);
+        self
+    }
+}
+
+
+impl AirPressureSensor {
+
+}

@@ -7,6 +7,9 @@ mod raw_types;
 /// For distance measurements
 pub type DistanceUnits = raw_types::Meters;
 
+/// For angular position measurements
+pub type AngularPosUnits = raw_types::Radians;
+
 /// For speed measurements
 pub type SpeedUnits = raw_types::MetersPerSecond;
 pub type AngularSpeedUnits = raw_types::RadiansPerSecond;
@@ -27,9 +30,8 @@ pub type LatLonUnits = raw_types::WGS84Degrees;
 
 pub type TimeBaseUnits = raw_types::TimeMicroseconds;
 
-// multiply millibars by 100 to get Pascals
 /// For barometer, airspeed
-pub type PressureUnits = raw_types::PressureUnitMillibar;
+pub type PressureUnits = raw_types::PressureUnitsMillibar;
 
 
 #[derive(Clone, Copy)]
