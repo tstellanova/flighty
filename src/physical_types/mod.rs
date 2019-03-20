@@ -34,7 +34,7 @@ pub type TimeBaseUnits = raw_types::TimeMicroseconds;
 pub type PressureUnits = raw_types::PressureUnitsMillibar;
 
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct GlobalPosition {
     pub lat: LatLonUnits,
     pub lon: LatLonUnits,

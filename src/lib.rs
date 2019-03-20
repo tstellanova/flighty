@@ -108,7 +108,7 @@ impl VirtualVehicleState {
         self.base_mag_field = Planet::calculate_mag_field(pos);
         if update_local_pos {
             self.inertial_position =
-                Planet::calculate_inertial_position(&self.home_position, pos);
+                Planet::calculate_inertial_distance(&self.home_position, pos);
         }
     }
 
@@ -201,7 +201,6 @@ mod tests {
         let diff_press = sensed.airspeed.peek();
         let diff = (diff_press - 0.0).abs();
         assert_eq!((diff < 1.0), false);
-
     }
 
     #[test]
