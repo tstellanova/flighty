@@ -8,7 +8,7 @@ pub type MetersPerSecondPerSecond = f32;
 pub type Radians = f32;
 pub type RadiansPerSecond = f32;
 pub type RadiansPerSecondPerSecond = f32;
-
+pub type AngleDegrees = f32;
 
 /// For temperature measurements
 pub type DegreesCelsius = f32;

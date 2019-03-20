@@ -8,6 +8,10 @@ edition = "2018"
 nalgebra = "0.17.2"
 #nphysics3d = "0.10.3"
 
+[dev-dependencies]
+approx = "0.3.2"
+
+
 
 [dependencies.sensulator]
 #git = "https://github.com/tstellanova/sensulator.git"

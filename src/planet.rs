@@ -1,7 +1,8 @@
 
+
 use std::f64::consts::PI;
-//use std::f64::NAN;
-use nalgebra::{Vector3};
+
+use nalgebra::{Rotation3, Vector3};
 
 use crate::physical_types::*;
 
@@ -177,12 +178,38 @@ impl Planet {
         )
     }
 
+
+    /**
+    Calculate magnetic field from the magnetic inclination and declination.
+    */
+    pub fn mag_field_from_declination_inclination(
+        declination: AngularDegreesUnits, inclination: AngularDegreesUnits) -> Vector3<MagUnits> {
+        let decl_rad = ((declination as f64) * Self::RADIANS_PER_DEGREE) as f32;
+        let incl_rad = ((inclination as f64) * Self::RADIANS_PER_DEGREE) as f32;
+
+        let incl_field = Vector3::new(
+            incl_rad.cos(),
+            0.0,
+            incl_rad.sin());
+
+        let rotator = Rotation3::from_axis_angle(&Vector3::z_axis(), decl_rad);
+        let net_field = rotator * incl_field;
+        net_field
+    }
+
+
+
+
 }
 
 #[cfg(test)]
 mod tests {
 
+    #[macro_use]
+    use approx::*;
+
     use crate::planet::*;
+    use crate::physical_types::{GlobalPosition};
     use crate::physical_types::*;
 
     #[test]
@@ -218,4 +245,53 @@ mod tests {
 
     }
 
+
+    // Mag sample data obtained from NOAA site:
+
+    // Berkeley: Latitude: 37.87160 degrees, Longitude: -122.27270 degrees
+    const BERKELEY_CA_MAG_DATA: [f32; 8] =
+        [2019.21096, 13.45808, 61.28492, 23151.3, 48186.3, 22515.6, 5388.1, 42260.3];
+
+    // Zurich: Latitude: 47.37690 degrees, Longitude: 8.54170 degrees
+    const ZURICH_CH_MAG_DATA: [f32; 8] =
+        [2019.21096,2.62243,63.36259,21539.3,48042.1,21516.8,985.5,42943.0];
+
+
+    //(0) Date in decimal years
+    //(1) Declination in decimal degrees
+    //(2) Inclination in decimal degrees
+    //(3) Horintensity in nanoTesla (nT)
+    //(4) Totalintensity in nanoTesla (nT)
+    //(5) Xcomponent in nanoTesla (nT)
+    //(6) Ycomponent in nanoTesla (nT)
+    //(7) Zcomponent in nanoTesla (nT)
+    fn check_mag_matches(sample_mag_data: &[f32; 8]) -> (Vector3<MagUnits>, Vector3<MagUnits>) {
+
+        let declination_degs = sample_mag_data[1];
+        let inclination_degs = sample_mag_data[2];
+
+        let total_mag = sample_mag_data[4];
+
+        let expected = Vector3::new(
+            sample_mag_data[5] / total_mag,
+            sample_mag_data[6] / total_mag,
+            sample_mag_data[7] / total_mag,
+            );
+
+        let actual =
+            Planet::mag_field_from_declination_inclination(
+            declination_degs, inclination_degs);
+
+        return (actual, expected);
+    }
+
+    #[test]
+    fn test_mag_from_declination() {
+        let berk_tuple = check_mag_matches(&BERKELEY_CA_MAG_DATA);
+        relative_eq!(berk_tuple.0, berk_tuple.1, epsilon = 1.0e-6);
+
+        let zurich_pair = check_mag_matches(&ZURICH_CH_MAG_DATA);
+        relative_eq!(zurich_pair.0, zurich_pair.1, epsilon = 1.0e-6);
+
+    }
 }

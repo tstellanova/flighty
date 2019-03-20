@@ -9,6 +9,7 @@ pub type DistanceUnits = raw_types::Meters;
 
 /// For angular position measurements
 pub type AngularPosUnits = raw_types::Radians;
+pub type AngularDegreesUnits = raw_types::AngleDegrees;
 
 /// For speed measurements
 pub type SpeedUnits = raw_types::MetersPerSecond;
@@ -32,6 +33,7 @@ pub type TimeBaseUnits = raw_types::TimeMicroseconds;
 
 /// For barometer, airspeed
 pub type PressureUnits = raw_types::PressureUnitsMillibar;
+
 
 
 #[derive(Clone, Copy, Debug)]
