@@ -75,20 +75,17 @@ impl Planet {
 
 
     /// Radius of the planet
-    const PLANETARY_RADIUS: f64 = 6371000.0;
-    const DEGREES_PER_RADIAN: f64 = 180.0 / PI;
-    const RADIANS_PER_DEGREE: f64 = PI / 180.0;
-    const GLOBAL_METER_DEGREES_PER_RADIAN: f64 = Self::PLANETARY_RADIUS * Self::DEGREES_PER_RADIAN;
+    const PLANETARY_RADIUS_METERS: f64 = 6.371E6;
+    const GLOBAL_RADIANS_PER_METER: f64 = PI/Self::PLANETARY_RADIUS_METERS;
 
     /// Calculate the relative distance from our reference position.
     //TODO switch to Haversine?
     pub fn calculate_relative_distance(&self, pos: &GlobalPosition)  -> Vector3<DistanceUnits> {
         let lat1_rad = pos.lat.to_radians();
-        let lon1_rad = pos.lon.to_radians();
         let cos_lat1 = lat1_rad.cos();
         let sin_lat1 = lat1_rad.sin();
 
-        let diff_lon = lon1_rad - self.lon0_rad;
+        let diff_lon =  (pos.lon - self.ref_position.lon).to_radians();
         let cos_diff_lon = diff_lon.cos();
         let sin_diff_lon = diff_lon.sin();
 
@@ -97,10 +94,10 @@ impl Planet {
         let c_fact = (sin_prod + cos_prod).acos();
         let k_fact;
         if 0.0 == c_fact {
-            k_fact = Self::PLANETARY_RADIUS;
+            k_fact = Self::PLANETARY_RADIUS_METERS;
         }
         else {
-            k_fact = (Self::PLANETARY_RADIUS * c_fact) / c_fact.sin();
+            k_fact = (Self::PLANETARY_RADIUS_METERS * c_fact) / c_fact.sin();
         }
 
         let x = k_fact * (self.cos_lat0 * sin_lat1 - self.sin_lat0 * cos_lat1 * cos_diff_lon) ;
@@ -113,8 +110,8 @@ impl Planet {
     /// Calculate a position at a given distance from our reference position
     //TODO fix
     pub fn position_at_distance(&self, pos: &Vector3<DistanceUnits>) -> GlobalPosition {
-        let x_rad = (pos[0] as f64) / Self::PLANETARY_RADIUS;
-        let y_rad = (pos[1] as f64) / Self::PLANETARY_RADIUS;
+        let x_rad = (pos[0] as f64) / Self::PLANETARY_RADIUS_METERS;
+        let y_rad = (pos[1] as f64) / Self::PLANETARY_RADIUS_METERS;
         let c_fact = (x_rad*x_rad + y_rad*y_rad).sqrt();
 
         let lat_rad;
@@ -146,16 +143,14 @@ impl Planet {
     pub fn calculate_inertial_distance(home: &GlobalPosition, pos: &GlobalPosition)
                                        -> Vector3<DistanceUnits> {
         let lat0_rad = home.lat.to_radians();
-        let lon0_rad = home.lon.to_radians();
         let cos_lat0 = lat0_rad.cos();
         let sin_lat0 = lat0_rad.sin();
 
         let lat1_rad = pos.lat.to_radians();
-        let lon1_rad = pos.lon.to_radians();
         let cos_lat1 = lat1_rad.cos();
         let sin_lat1 = lat1_rad.sin();
 
-        let diff_lon = lon1_rad - lon0_rad;
+        let diff_lon =  (pos.lon - home.lon).to_radians();
         let cos_diff_lon = diff_lon.cos();
         let sin_diff_lon = diff_lon.sin();
 
@@ -164,10 +159,10 @@ impl Planet {
         let c_fact = (sin_prod + cos_prod).acos();
         let k_fact;
         if 0.0 == c_fact {
-            k_fact = Self::PLANETARY_RADIUS;
+            k_fact = Self::PLANETARY_RADIUS_METERS;
         }
         else {
-            k_fact = (Self::PLANETARY_RADIUS * c_fact) / c_fact.sin();
+            k_fact = (Self::PLANETARY_RADIUS_METERS * c_fact) / c_fact.sin();
         }
 
         let x = k_fact * (cos_lat0 * sin_lat1 - sin_lat0 * cos_lat1 * cos_diff_lon) ;
@@ -179,18 +174,18 @@ impl Planet {
 
 
     /// Calculate a new GlobalPosition as a distance offset from another position.
-    //TODO fix
+    //TODO fix distance calculations
     pub fn add_distance_to_position(
         pos: &GlobalPosition, dist: &Vector3<DistanceUnits>) -> GlobalPosition {
-        // for latitude, degrees per meter is held constant
-        let lat_offset = (dist[0]  as f64)/ Self::GLOBAL_METER_DEGREES_PER_RADIAN;
-        // for longitude, degrees per meter varies with latitude (gets weird at the poles)
-        let lon_offset = (dist[1] as f64) /
-            Self::GLOBAL_METER_DEGREES_PER_RADIAN * ((pos.lat.to_radians()).cos());
+        // for latitude, radians per meter is held constant
+        let lat_offset_rad: f64 = (dist[0]  as f64) * Self::GLOBAL_RADIANS_PER_METER;
+        // for longitude, radians per meter varies with latitude (gets weird at the poles)
+        let lon_offset_rad: f64 = (dist[1] as f64)
+            * Self::GLOBAL_RADIANS_PER_METER * ((pos.lat.to_radians()).cos());
 
         GlobalPosition {
-            lat: pos.lat + lat_offset,
-            lon: pos.lon + lon_offset,
+            lat: pos.lat + lat_offset_rad.to_degrees(),
+            lon: pos.lon + lon_offset_rad.to_degrees(),
             alt: pos.alt - dist[2]
         }
     }
@@ -242,23 +237,28 @@ impl Planet {
 
 #[cfg(test)]
 mod tests {
-
-    #[macro_use]
+    //#[macro_use]
     use assert_approx_eq::assert_approx_eq;
 
     use crate::planet::*;
     use crate::physical_types::{MagUnits, GlobalPosition};
 
+    fn get_reference_position() -> GlobalPosition {
+        GlobalPosition {
+            lat: 37.8716, //degrees
+            lon: -122.2727, //degrees
+            alt: 10.0 //meters
+        }
+    }
     #[test]
     fn test_precalc() {
-        let zero_dist = Vector3::new(0.0, 0.0, 0.0);
         let test_pos = GlobalPosition {
             lat: 45.0, //degrees
             lon: -45.0, //degrees
             alt: 10.0 //meters
         };
 
-        let mut planet = Planet::new(&test_pos);
+        let planet = Planet::new(&test_pos);
         println!("lat0_rad {} lon0_rad {} cos_lat0 {} sin_lat0 {} ",
             planet.lat0_rad,
             planet.lon0_rad,
@@ -343,17 +343,9 @@ mod tests {
     #[test]
     fn test_position_at_distance() {
         let zero_dist = Vector3::new(0.0, 0.0, 0.0 );
-        let home_pos = GlobalPosition {
-            lat: 37.8716, //degrees
-            lon: -122.2727, //degrees
-            alt: 10.0 //meters
-        };
-        // 37.88
-        // -122.28
-        println!("home_pos {:?} ", home_pos);
+        let home_pos = get_reference_position();
 
-
-        let mut planet = Planet::new(&home_pos);
+        let planet = Planet::new(&home_pos);
         let offset_pos1 = planet.position_at_distance(&zero_dist);
         println!("offset_pos1 {:?} ", offset_pos1);
         assert_eq!(offset_pos1.alt, home_pos.alt);
@@ -370,13 +362,9 @@ mod tests {
     }
 
     #[test]
-    fn test_local_to_global_conversions() {
+    fn test_calculate_inertial_distance() {
         let zero_dist = Vector3::new(0.0, 0.0, 0.0 );
-        let home_pos = GlobalPosition {
-            lat: 37.8716, //degrees
-            lon: -122.2727, //degrees
-            alt: 10.0 //meters
-        };
+        let home_pos = get_reference_position();
         let clone_home = home_pos.clone();
 
         let dist =
@@ -384,32 +372,42 @@ mod tests {
         println!("inertial_dist: {:?} ", dist);
         assert_eq!(zero_dist, dist);
 
-        let mut planet = Planet::new(&home_pos);
+        //TODO test nonzero distance
+
+    }
+
+    #[test]
+    fn test_calculate_relative_distance() {
+        let zero_dist = Vector3::new(0.0, 0.0, 0.0 );
+        let home_pos = get_reference_position();
+        let clone_home = home_pos.clone();
+
+        let planet = Planet::new(&home_pos);
         //distance from home position should essentially be zero
         let dist =
             planet.calculate_relative_distance(&clone_home);
         println!("relative_dist: {:?} ", dist);
         assert_eq!(zero_dist, dist);
 
+        //TODO test other relative distance
+    }
 
-        //TODO:
-        let known_dist = Vector3::new(100.0,100.0,100.0);
+    #[test]
+    fn test_add_distance_to_position() {
+        let home_pos = get_reference_position();
+        let known_dist = Vector3::new(1000.0,1000.0,-100.0);
         let offset_pos =
-            Planet::add_distance_to_position(&clone_home, &known_dist);
+            Planet::add_distance_to_position(&home_pos, &known_dist);
         println!("offset_pos: {:?}", offset_pos);
 
         let dist =
             Planet::calculate_inertial_distance(&home_pos, &offset_pos);
         println!("inertial_dist: {:?} ", dist);
 
-        let dist =
-            planet.calculate_relative_distance(&offset_pos);
-        println!("relative_dist: {:?} ", dist);
-
-        //TODO fix distance calculations
         //inertial_dist:  [0.018981751, 0.014983975, 100.0]
-        assert_eq!(dist, known_dist);
-
+        assert_approx_eq!(dist[0], known_dist[0]);
+        assert_approx_eq!(dist[1], known_dist[1]);
+        assert_approx_eq!(dist[2], known_dist[2]);
     }
 
 }
