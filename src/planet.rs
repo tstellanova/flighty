@@ -10,12 +10,17 @@ use crate::physical_types::*;
 
 /// Planetary environment calculations
 pub struct Planet {
+    /// reference or "home" position
     ref_position: GlobalPosition,
-    /// -- Precalculated global positioning values ---
-    lat0_rad: f64,  //home.lat * Self::RADIANS_PER_DEGREE;
-    lon0_rad: f64, // = home.lon * Self::RADIANS_PER_DEGREE;
-    cos_lat0: f64, // = lat0_rad.cos();
-    sin_lat0: f64, // = lat0_rad.sin();
+
+    /// reference latitude in radians
+    lat0_rad: f64,
+    /// reference longitude in radians
+    lon0_rad: f64,
+    /// cosine of reference latitude
+    cos_lat0: f64,
+    /// sine of reference latitude
+    sin_lat0: f64,
 }
 
 impl Planet {
@@ -40,8 +45,8 @@ impl Planet {
     }
 
     fn precalc_geo_references(&mut self) {
-        self.lat0_rad = self.ref_position.lat * Self::RADIANS_PER_DEGREE;
-        self.lon0_rad = self.ref_position.lon * Self::RADIANS_PER_DEGREE;
+        self.lat0_rad = self.ref_position.lat.to_radians();
+        self.lon0_rad = self.ref_position.lon.to_radians();
         self.cos_lat0 = self.lat0_rad.cos();
         self.sin_lat0 = self.lat0_rad.sin();
     }
@@ -73,13 +78,13 @@ impl Planet {
     const PLANETARY_RADIUS: f64 = 6371000.0;
     const DEGREES_PER_RADIAN: f64 = 180.0 / PI;
     const RADIANS_PER_DEGREE: f64 = PI / 180.0;
-    const GLOBAL_DEGREES_PER_METER: f64 = Self::PLANETARY_RADIUS * Self::DEGREES_PER_RADIAN;
+    const GLOBAL_METER_DEGREES_PER_RADIAN: f64 = Self::PLANETARY_RADIUS * Self::DEGREES_PER_RADIAN;
 
     /// Calculate the relative distance from our reference position.
     //TODO switch to Haversine?
     pub fn calculate_relative_distance(&self, pos: &GlobalPosition)  -> Vector3<DistanceUnits> {
-        let lat1_rad = pos.lat * Self::RADIANS_PER_DEGREE;
-        let lon1_rad = pos.lon * Self::RADIANS_PER_DEGREE;
+        let lat1_rad = pos.lat.to_radians();
+        let lon1_rad = pos.lon.to_radians();
         let cos_lat1 = lat1_rad.cos();
         let sin_lat1 = lat1_rad.sin();
 
@@ -129,8 +134,8 @@ impl Planet {
         }
 
         GlobalPosition {
-            lat: (lat_rad * Self::DEGREES_PER_RADIAN) as LatLonUnits,
-            lon: (lon_rad * Self::DEGREES_PER_RADIAN) as LatLonUnits,
+            lat: lat_rad.to_degrees()  as LatLonUnits,
+            lon: lon_rad.to_degrees() as LatLonUnits,
             alt: self.ref_position.alt - pos[2]
         }
     }
@@ -140,13 +145,13 @@ impl Planet {
     //TODO fix
     pub fn calculate_inertial_distance(home: &GlobalPosition, pos: &GlobalPosition)
                                        -> Vector3<DistanceUnits> {
-        let lat0_rad = home.lat * Self::RADIANS_PER_DEGREE;
-        let lon0_rad = home.lon * Self::RADIANS_PER_DEGREE;
+        let lat0_rad = home.lat.to_radians();
+        let lon0_rad = home.lon.to_radians();
         let cos_lat0 = lat0_rad.cos();
         let sin_lat0 = lat0_rad.sin();
 
-        let lat1_rad = pos.lat * Self::RADIANS_PER_DEGREE;
-        let lon1_rad = pos.lon * Self::RADIANS_PER_DEGREE;
+        let lat1_rad = pos.lat.to_radians();
+        let lon1_rad = pos.lon.to_radians();
         let cos_lat1 = lat1_rad.cos();
         let sin_lat1 = lat1_rad.sin();
 
@@ -178,10 +183,10 @@ impl Planet {
     pub fn add_distance_to_position(
         pos: &GlobalPosition, dist: &Vector3<DistanceUnits>) -> GlobalPosition {
         // for latitude, degrees per meter is held constant
-        let lat_offset = (dist[0]  as f64)/ Self::GLOBAL_DEGREES_PER_METER;
+        let lat_offset = (dist[0]  as f64)/ Self::GLOBAL_METER_DEGREES_PER_RADIAN;
         // for longitude, degrees per meter varies with latitude (gets weird at the poles)
         let lon_offset = (dist[1] as f64) /
-            Self::GLOBAL_DEGREES_PER_METER * ((Self::RADIANS_PER_DEGREE * pos.lat).cos());
+            Self::GLOBAL_METER_DEGREES_PER_RADIAN * ((pos.lat.to_radians()).cos());
 
         GlobalPosition {
             lat: pos.lat + lat_offset,
@@ -212,8 +217,8 @@ impl Planet {
     */
     pub fn mag_field_from_declination_inclination(
         declination: AngularDegreesUnits, inclination: AngularDegreesUnits) -> Vector3<MagUnits> {
-        let decl_rad = ((declination as f64) * Self::RADIANS_PER_DEGREE) as f32;
-        let incl_rad = ((inclination as f64) * Self::RADIANS_PER_DEGREE) as f32;
+        let decl_rad = declination.to_radians() as f32;
+        let incl_rad = inclination.to_radians() as f32;
 
         let incl_field = Vector3::new(
             incl_rad.cos(),
