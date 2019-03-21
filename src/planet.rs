@@ -197,6 +197,13 @@ impl Planet {
         net_field
     }
 
+    /// returns Horizontal, Total intensity
+    pub fn mag_field_intensity(field: &Vector3<MagUnits>) -> (MagUnits, MagUnits) {
+        let h_intensity_sq = field[0] * field[0] + field[1] * field[1];
+        let t_intensity = (field[2] * field[2] + h_intensity_sq).sqrt();
+        (h_intensity_sq.sqrt(), t_intensity)
+    }
+
 
 
 
@@ -257,21 +264,25 @@ mod tests {
         [2019.21096,2.62243,63.36259,21539.3,48042.1,21516.8,985.5,42943.0];
 
 
-    //(0) Date in decimal years
-    //(1) Declination in decimal degrees
-    //(2) Inclination in decimal degrees
-    //(3) Horintensity in nanoTesla (nT)
-    //(4) Totalintensity in nanoTesla (nT)
-    //(5) Xcomponent in nanoTesla (nT)
-    //(6) Ycomponent in nanoTesla (nT)
-    //(7) Zcomponent in nanoTesla (nT)
-    fn check_mag_matches(sample_mag_data: &[f32; 8]) -> (Vector3<MagUnits>, Vector3<MagUnits>) {
+    ///* sample_mag_data:
+    /// 0. Date in decimal years
+    /// 1. Declination in decimal degrees
+    /// 2. Inclination in decimal degrees
+    /// 3. Horintensity in nanoTesla (nT)
+    /// 4. Totalintensity in nanoTesla (nT)
+    /// 5. Xcomponent in nanoTesla (nT)
+    /// 6. Ycomponent in nanoTesla (nT)
+    /// 7. Zcomponent in nanoTesla (nT)
+    ///* returns (actual, expected) normalized magnetic field values
+    fn gen_mag_comparison_pair(sample_mag_data: &[f32; 8])
+        -> (Vector3<MagUnits>, Vector3<MagUnits>) {
 
         let declination_degs = sample_mag_data[1];
         let inclination_degs = sample_mag_data[2];
 
         let total_mag = sample_mag_data[4];
 
+        //normalize the components by the provided total magnitude
         let expected = Vector3::new(
             sample_mag_data[5] / total_mag,
             sample_mag_data[6] / total_mag,
@@ -287,11 +298,18 @@ mod tests {
 
     #[test]
     fn test_mag_from_declination() {
-        let berk_tuple = check_mag_matches(&BERKELEY_CA_MAG_DATA);
-        relative_eq!(berk_tuple.0, berk_tuple.1, epsilon = 1.0e-6);
+        // verify that the output of mag_field_from_declination_inclination matches expected from NOAA
 
-        let zurich_pair = check_mag_matches(&ZURICH_CH_MAG_DATA);
-        relative_eq!(zurich_pair.0, zurich_pair.1, epsilon = 1.0e-6);
+        let (actual, expected) = gen_mag_comparison_pair(&BERKELEY_CA_MAG_DATA);
+        relative_eq!(actual, expected, epsilon = 1.0e-6);
+        let (h_intensity, t_intensity) = Planet::mag_field_intensity(&actual);
+        relative_eq!(h_intensity, BERKELEY_CA_MAG_DATA[3], epsilon = 1.0e-6);
+        relative_eq!(t_intensity, BERKELEY_CA_MAG_DATA[4], epsilon = 1.0e-6);
 
+        let (actual, expected) = gen_mag_comparison_pair(&ZURICH_CH_MAG_DATA);
+        relative_eq!(actual, expected, epsilon = 1.0e-6);
+        let (h_intensity, t_intensity) = Planet::mag_field_intensity(&actual);
+        relative_eq!(h_intensity, ZURICH_CH_MAG_DATA[3], epsilon = 1.0e-6);
+        relative_eq!(t_intensity, ZURICH_CH_MAG_DATA[4], epsilon = 1.0e-6);
     }
 }
