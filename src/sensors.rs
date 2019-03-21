@@ -27,8 +27,7 @@ const AIR_PRESS_REL_ERR: PressureUnits = 1E-3;
 
 const GAS_CONSTANT_R1: f32 = 287.05;
 
-// 101325 Pascals in millibars
-pub const SEA_LEVEL_AIR_PRESSURE: PressureUnits = 1013.25;
+
 
 
 pub trait SensorLike {

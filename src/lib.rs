@@ -176,11 +176,13 @@ impl SensedPhysicalState {
 mod tests {
     use crate::{SensedPhysicalState, VirtualVehicleState};
     use crate::physical_types::*;
-    use crate::sensors;
     use crate::simulato::Simulato;
+
 
     #[test]
     fn test_phys_init() {
+        const SEA_LEVEL_AIR_PRESSURE: PressureUnits = 1013.25;
+
         let pos = GlobalPosition {
             lat: 0.0,
             lon: 0.0,
@@ -189,7 +191,8 @@ mod tests {
         let mut virt = VirtualVehicleState::new(&pos);
         let mut sensed = SensedPhysicalState::new();
         virt.relative_airspeed = 55.0;
-        virt.local_air_pressure = sensors::SEA_LEVEL_AIR_PRESSURE;
+        // 101325 Pascals in millibars
+        virt.local_air_pressure = SEA_LEVEL_AIR_PRESSURE;
 
         sensed.update_from_virtual(&virt);
         assert_eq!(virt.global_position.alt, pos.alt);
