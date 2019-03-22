@@ -190,6 +190,28 @@ impl Planet {
         }
     }
 
+    pub fn haversine_distance(pos1: &GlobalPosition, pos2: &GlobalPosition) -> f64 {
+
+        let phi1:f64 = pos1.lat.to_radians();
+        let phi2:f64 = pos2.lat.to_radians();
+
+        let d_phi = (pos2.lat - pos1.lat).to_radians();
+        let phi_half = d_phi/2.0;
+        let phi_half_sin = phi_half.sin();
+
+        let d_lambda = (pos2.lon - pos1.lon).to_radians();
+        let lambda_half = d_lambda/2.0;
+        let lambda_half_sin = lambda_half.sin();
+
+        let a = (phi_half_sin * phi_half_sin) +
+                phi1.cos() * phi2.cos() * (lambda_half_sin * lambda_half_sin);
+
+        let c = 2.0 * (a.sqrt()).atan2((1.0 - a).sqrt());
+
+        let d = c * Self::PLANETARY_RADIUS_METERS;
+        d
+    }
+
     /**
     Given a position on the planet,
     calculate the expected magnetic field.
@@ -410,4 +432,18 @@ mod tests {
         assert_approx_eq!(dist[2], known_dist[2]);
     }
 
+    #[test]
+    fn test_haversine_distance() {
+        let home_pos = get_reference_position();
+        let next_pos = GlobalPosition {
+            lat: 38.0,
+            lon: -122.0,
+            alt: 0.0
+        };
+
+        let dist = Planet::haversine_distance(&home_pos, &next_pos);
+        println!("dist: {}", dist);
+        assert_approx_eq!(27853.0, dist, 0.25);
+    }
+    
 }
