@@ -1,7 +1,6 @@
 /// Raw physical type definitions
 
 
-/// private types
 pub type Meters = f32;
 pub type MetersPerSecond = f32;
 pub type MetersPerSecondPerSecond = f32;
@@ -9,6 +8,8 @@ pub type Radians = f32;
 pub type RadiansPerSecond = f32;
 pub type RadiansPerSecondPerSecond = f32;
 pub type AngleDegrees = f32;
+
+pub type HighResolutionMeters = f64;
 
 /// For temperature measurements
 pub type DegreesCelsius = f32;

@@ -1,6 +1,5 @@
 
 
-use std::f64::consts::PI;
 
 use nalgebra::{Rotation3, Vector3};
 
@@ -8,48 +7,106 @@ use crate::physical_types::*;
 
 
 
+pub trait Planetary {
+
+    /// Set a reference or "home" position from which relative distances can be calculated
+    /// Allows preloading / precalculation of eg magnetic fields.
+    fn set_reference_position(&mut self, pos: &GlobalPosition);
+
+    fn get_reference_position(&self) -> GlobalPosition;
+
+    /// get barometric pressure at a given altitude
+    /// assumes standard atmosphere and temperature for the planet
+    fn altitude_to_baro_pressure(alt: DistanceUnits) -> PressureUnits;
+
+    /// calculate relative distance from reference position
+    fn calculate_relative_distance(&self, pos: &GlobalPosition) -> Vector3<DistanceUnits>;
+
+    /// calculate magenetic field at a given location on the planet
+    fn calculate_mag_field(&self, _pos: &GlobalPosition) -> Vector3<MagUnits>;
+
+    /// calculate a new position some distance from reference position
+    fn position_at_distance(&self, dist: &Vector3<DistanceUnits>) -> GlobalPosition;
+
+
+
+}
+
 /// Planetary environment calculations
-pub struct Planet {
+pub struct PlanetEarth {
+
+    /// The radius of this planet
+    radius: HighResDistanceUnits,
+
     /// reference or "home" position
     ref_position: GlobalPosition,
 
-    /// reference latitude in radians
-    lat0_rad: f64,
-    /// reference longitude in radians
-    lon0_rad: f64,
-    /// cosine of reference latitude
-    cos_lat0: f64,
-    /// sine of reference latitude
-    sin_lat0: f64,
 }
 
-impl Planet {
 
-    pub fn new(ref_pos: &GlobalPosition) -> Planet {
-        let mut inst = Planet {
-            ref_position: *ref_pos,
-            lat0_rad: 0.0,
-            lon0_rad: 0.0,
-            cos_lat0: 0.0,
-            sin_lat0: 0.0
-        };
-        inst.set_reference_position(ref_pos);
+///
+/// Refer to [Ed William's Aviation Formulary](http://www.edwilliams.org/avform.htm)
+/// for examples and discussion of geolocation functions.
+///
+///
+impl Planetary for PlanetEarth {
 
-        inst
+    fn get_reference_position(&self) -> GlobalPosition {
+        self.ref_position
     }
 
-    pub fn set_reference_position(&mut self, pos: &GlobalPosition) {
+    fn set_reference_position(&mut self, pos: &GlobalPosition) {
         self.ref_position = *pos;
         self.precalc_geo_references();
-        //TODO precalc mag declination etc
+        self.precalc_mag_environment();
     }
 
-    fn precalc_geo_references(&mut self) {
-        self.lat0_rad = self.ref_position.lat.to_radians();
-        self.lon0_rad = self.ref_position.lon.to_radians();
-        self.cos_lat0 = self.lat0_rad.cos();
-        self.sin_lat0 = self.lat0_rad.sin();
+    /// Calculate the relative distance from our reference position.
+    fn calculate_relative_distance(&self, pos: &GlobalPosition)  -> Vector3<DistanceUnits> {
+        let (vec, _total) =
+            Self::haversine_distance(self.radius,&self.ref_position, pos);
+        vec
     }
+
+    /// Calculate a position at a given distance from our reference position
+    fn position_at_distance(&self, dist: &Vector3<DistanceUnits>) -> GlobalPosition {
+        Self::add_offset_to_position(
+            self.radius,
+            &self.ref_position,
+            dist
+        )
+    }
+
+
+
+    /**
+    Convert altitude (meters) to standard barometric pressure (Millibars)
+    Note: this formula is likely only useful under 10k feet altitude
+    */
+    fn altitude_to_baro_pressure(alt: DistanceUnits) -> PressureUnits {
+        let big_alt: f64 = alt.into();
+        let base = Self::STD_TEMP / (Self::STD_TEMP + (Self::LAPSE_RATE * big_alt));
+        let val: f64 = Self::STD_PRESS * base.powf(Self::ALT_CONVERSION_EXP); //in Pascals
+        let val = val / 100.0; // Pascals -> Millibars
+        (val as PressureUnits)
+    }
+
+    /// Given a position on the planet, calculate the expected magnetic field.
+    /// - See gufm1: https://pdfs.semanticscholar.org/0175/7d8d373355c0a2ae5c189ea2c95ca7bc0a25.pdf
+    /// - See NOAA calculators: https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml
+    ///
+    fn calculate_mag_field(&self, _pos: &GlobalPosition) -> Vector3<MagUnits> {
+        //TODO calculate mag field from planetary factors
+        Vector3::new(
+            0.0,
+            0.0,
+            0.0
+        )
+    }
+}
+
+
+impl PlanetEarth {
 
     const STD_PRESS: f64 = 101325.0;  // static pressure at sea level (Pa)
     const STD_TEMP: f64 = 288.15;    // standard temperature at sea level (K)
@@ -60,173 +117,95 @@ impl Planet {
     const ALT_CONVERSION_EXP:f64 =
         (Self::ACCEL_G * Self::MOL_MASS) / (Self::GAS_CONSTANT_R2 * Self::LAPSE_RATE);
 
+    pub fn new(ref_pos: &GlobalPosition) -> PlanetEarth {
+        let mut inst = PlanetEarth {
+            radius: Self::WGS84_EARTH_RADIUS,
+            ref_position: *ref_pos,
+        };
 
-    /**
-    Convert altitude (meters) to standard barometric pressure (Millibars)
-    Note: this formula is likely only useful under 10k feet altitude
-    */
-    pub fn altitude_to_baro_pressure(alt: DistanceUnits) -> PressureUnits {
-        let big_alt: f64 = alt.into();
-        let base = Self::STD_TEMP / (Self::STD_TEMP + (Self::LAPSE_RATE * big_alt));
-        let val: f64 = Self::STD_PRESS * base.powf(Self::ALT_CONVERSION_EXP); //in Pascals
-        let val = val / 100.0; // Pascals -> Millibars
-        (val as PressureUnits)
+        inst.set_reference_position(ref_pos);
+
+        inst
+    }
+
+
+    fn precalc_geo_references(&mut self) {
+        //TODO any precalculation geolocation factors
+    }
+
+    fn precalc_mag_environment(&mut self) {
+        //TODO precalc mag declination etc
     }
 
 
     /// Radius of the planet
-    const PLANETARY_RADIUS_METERS: f64 = 6.371E6;
-    const GLOBAL_RADIANS_PER_METER: f64 = PI/Self::PLANETARY_RADIUS_METERS;
+    const WGS84_EARTH_RADIUS: HighResDistanceUnits = 6.378137e6;
 
-    /// Calculate the relative distance from our reference position.
-    //TODO switch to Haversine?
-    pub fn calculate_relative_distance(&self, pos: &GlobalPosition)  -> Vector3<DistanceUnits> {
-        let lat1_rad = pos.lat.to_radians();
-        let cos_lat1 = lat1_rad.cos();
-        let sin_lat1 = lat1_rad.sin();
 
-        let diff_lon =  (pos.lon - self.ref_position.lon).to_radians();
-        let cos_diff_lon = diff_lon.cos();
-        let sin_diff_lon = diff_lon.sin();
+    /// Calculate a new GlobalPosition as a distance offset from a starting position.
+    /// - pos : starting position
+    /// - dist : distance offsets in North, East, Down (NED) frame
+    /// - planet_radius: radius of the planet
+    ///
+    pub fn add_offset_to_position(
+        planet_radius: HighResDistanceUnits,
+        pos: &GlobalPosition,
+        dist: &Vector3<DistanceUnits>
+    ) -> GlobalPosition {
 
-        let sin_prod = self.sin_lat0 * sin_lat1;
-        let cos_prod = self.cos_lat0 * cos_lat1 * cos_diff_lon;
-        let c_fact = (sin_prod + cos_prod).acos();
-        let k_fact;
-        if 0.0 == c_fact {
-            k_fact = Self::PLANETARY_RADIUS_METERS;
-        }
-        else {
-            k_fact = (Self::PLANETARY_RADIUS_METERS * c_fact) / c_fact.sin();
-        }
-
-        let x = k_fact * (self.cos_lat0 * sin_lat1 - self.sin_lat0 * cos_lat1 * cos_diff_lon) ;
-        let y = k_fact * cos_lat1 * sin_diff_lon ;
-        let z = self.ref_position.alt - pos.alt;
-
-        Vector3::new( x as DistanceUnits, y as DistanceUnits, z as DistanceUnits )
-    }
-
-    /// Calculate a position at a given distance from our reference position
-    //TODO fix
-    pub fn position_at_distance(&self, pos: &Vector3<DistanceUnits>) -> GlobalPosition {
-        let x_rad = (pos[0] as f64) / Self::PLANETARY_RADIUS_METERS;
-        let y_rad = (pos[1] as f64) / Self::PLANETARY_RADIUS_METERS;
-        let c_fact = (x_rad*x_rad + y_rad*y_rad).sqrt();
-
-        let lat_rad;
-        let lon_rad;
-        if 0.0 == c_fact {
-            lat_rad = self.lat0_rad;
-            lon_rad = self.lon0_rad;
-        }
-        else {
-            let sin_c = c_fact.sin();
-            let cos_c = c_fact.cos();
-            lat_rad = (cos_c * self.sin_lat0 + (x_rad * sin_c * self.cos_lat0) / c_fact).asin();
-
-            let first = y_rad * sin_c;
-            let second = c_fact * self.cos_lat0 * cos_c - x_rad * self.sin_lat0 * sin_c;
-            lon_rad = self.ref_position.lon + first.atan2(second);
-        }
+        let lat_fact = pos.lat.to_radians().cos();
+        // coordinate offsets (radians)
+        let d_lat = (dist[0] as HighResDistanceUnits) / planet_radius;
+        let d_lon = (dist[1]as HighResDistanceUnits) / (planet_radius * lat_fact);
 
         GlobalPosition {
-            lat: lat_rad.to_degrees()  as LatLonUnits,
-            lon: lon_rad.to_degrees() as LatLonUnits,
-            alt: self.ref_position.alt - pos[2]
-        }
-    }
-
-
-    /// Calculate the relative distance between two global positions.
-    //TODO fix
-    pub fn calculate_inertial_distance(home: &GlobalPosition, pos: &GlobalPosition)
-                                       -> Vector3<DistanceUnits> {
-        let lat0_rad = home.lat.to_radians();
-        let cos_lat0 = lat0_rad.cos();
-        let sin_lat0 = lat0_rad.sin();
-
-        let lat1_rad = pos.lat.to_radians();
-        let cos_lat1 = lat1_rad.cos();
-        let sin_lat1 = lat1_rad.sin();
-
-        let diff_lon =  (pos.lon - home.lon).to_radians();
-        let cos_diff_lon = diff_lon.cos();
-        let sin_diff_lon = diff_lon.sin();
-
-        let sin_prod = sin_lat0 * sin_lat1;
-        let cos_prod = cos_lat0 * cos_lat1 * cos_diff_lon;
-        let c_fact = (sin_prod + cos_prod).acos();
-        let k_fact;
-        if 0.0 == c_fact {
-            k_fact = Self::PLANETARY_RADIUS_METERS;
-        }
-        else {
-            k_fact = (Self::PLANETARY_RADIUS_METERS * c_fact) / c_fact.sin();
-        }
-
-        let x = k_fact * (cos_lat0 * sin_lat1 - sin_lat0 * cos_lat1 * cos_diff_lon) ;
-        let y = k_fact * cos_lat1 * sin_diff_lon ;
-        let z = home.alt - pos.alt;
-
-        Vector3::new( x as DistanceUnits, y as DistanceUnits, z as DistanceUnits )
-    }
-
-
-    /// Calculate a new GlobalPosition as a distance offset from another position.
-    //TODO fix distance calculations
-    pub fn add_distance_to_position(
-        pos: &GlobalPosition, dist: &Vector3<DistanceUnits>) -> GlobalPosition {
-        // for latitude, radians per meter is held constant
-        let lat_offset_rad: f64 = (dist[0]  as f64) * Self::GLOBAL_RADIANS_PER_METER;
-        // for longitude, radians per meter varies with latitude (gets weird at the poles)
-        let lon_offset_rad: f64 = (dist[1] as f64)
-            * Self::GLOBAL_RADIANS_PER_METER * ((pos.lat.to_radians()).cos());
-
-        GlobalPosition {
-            lat: pos.lat + lat_offset_rad.to_degrees(),
-            lon: pos.lon + lon_offset_rad.to_degrees(),
+            lat: pos.lat + d_lat.to_degrees(),
+            lon: pos.lon + d_lon.to_degrees(),
             alt: pos.alt - dist[2]
         }
     }
 
-    pub fn haversine_distance(pos1: &GlobalPosition, pos2: &GlobalPosition) -> f64 {
+    /// Calculate the great circle distance between two points on the planet.
+    pub fn haversine_distance(planet_radius: HighResDistanceUnits,
+                              pos1: &GlobalPosition,
+                              pos2: &GlobalPosition)
+        -> (Vector3<DistanceUnits>, HighResDistanceUnits) {
 
-        let phi1:f64 = pos1.lat.to_radians();
-        let phi2:f64 = pos2.lat.to_radians();
+        let lat1_rad:f64 = pos1.lat.to_radians();
+        let lat2_rad:f64 = pos2.lat.to_radians();
 
-        let d_phi = (pos2.lat - pos1.lat).to_radians();
-        let phi_half = d_phi/2.0;
-        let phi_half_sin = phi_half.sin();
+        let lat_diff = (pos2.lat - pos1.lat).to_radians();
+        let lat_diff_half = lat_diff/2.0;
+        let lat_diff_half_sin = lat_diff_half.sin();
 
-        let d_lambda = (pos2.lon - pos1.lon).to_radians();
-        let lambda_half = d_lambda/2.0;
-        let lambda_half_sin = lambda_half.sin();
+        let lon_diff = (pos2.lon - pos1.lon).to_radians();
+        let lon_diff_half = lon_diff/2.0;
+        let lon_diff_half_sin = lon_diff_half.sin();
 
-        let a = (phi_half_sin * phi_half_sin) +
-                phi1.cos() * phi2.cos() * (lambda_half_sin * lambda_half_sin);
+        let a = (lat_diff_half_sin * lat_diff_half_sin) +
+                lat1_rad.cos() * lat2_rad.cos() * (lon_diff_half_sin * lon_diff_half_sin);
 
         let c = 2.0 * (a.sqrt()).atan2((1.0 - a).sqrt());
 
-        let d = c * Self::PLANETARY_RADIUS_METERS;
-        d
-    }
+        let total_dist = c * planet_radius;
 
-    /**
-    Given a position on the planet,
-    calculate the expected magnetic field.
-    @see gufm1: https://pdfs.semanticscholar.org/0175/7d8d373355c0a2ae5c189ea2c95ca7bc0a25.pdf
-    @see NOAA calculators: https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml
+        //TODO may also be able to calculate bearing from Haversine components we already have
+        let first = lon_diff.sin() * lat2_rad.cos();
+        let second = lat1_rad.cos()*lat2_rad.sin() - lat1_rad.sin()*lat2_rad.cos()*lon_diff.cos();
+        let bearing = first.atan2(second);
 
-    */
-    pub fn calculate_mag_field(_pos: &GlobalPosition) -> Vector3<MagUnits> {
-        //TODO calculate mag field from planetary factors
-        Vector3::new(
-            0.0,
-            0.0,
-            0.0
+        let x_dist = total_dist * bearing.cos();
+        let y_dist = total_dist * bearing.sin();
+
+        (
+            Vector3::new(
+                x_dist as DistanceUnits,
+                y_dist as DistanceUnits,
+                pos2.alt - pos1.alt ),
+            total_dist
         )
     }
+
 
 
     /**
@@ -272,27 +251,7 @@ mod tests {
             alt: 10.0 //meters
         }
     }
-    #[test]
-    fn test_precalc() {
-        let test_pos = GlobalPosition {
-            lat: 45.0, //degrees
-            lon: -45.0, //degrees
-            alt: 10.0 //meters
-        };
 
-        let planet = Planet::new(&test_pos);
-        println!("lat0_rad {} lon0_rad {} cos_lat0 {} sin_lat0 {} ",
-            planet.lat0_rad,
-            planet.lon0_rad,
-            planet.cos_lat0,
-            planet.sin_lat0
-        );
-
-        assert_approx_eq!(planet.cos_lat0, 0.707106, 1.0e-6);
-        assert_approx_eq!(planet.sin_lat0, 0.707106, 1.0e-6);
-        assert_approx_eq!(planet.lat0_rad, (PI/4.0), 1.0e-6);
-        assert_approx_eq!(planet.lon0_rad, (-PI/4.0), 1.0e-6);
-    }
 
 
     // Mag sample data obtained from NOAA site:
@@ -332,7 +291,7 @@ mod tests {
             );
 
         let actual =
-            Planet::mag_field_from_declination_inclination(
+            PlanetEarth::mag_field_from_declination_inclination(
             declination_degs, inclination_degs);
 
         return (actual, expected);
@@ -367,7 +326,7 @@ mod tests {
         let zero_dist = Vector3::new(0.0, 0.0, 0.0 );
         let home_pos = get_reference_position();
 
-        let planet = Planet::new(&home_pos);
+        let planet = PlanetEarth::new(&home_pos);
         let offset_pos1 = planet.position_at_distance(&zero_dist);
         println!("offset_pos1 {:?} ", offset_pos1);
         assert_eq!(offset_pos1.alt, home_pos.alt);
@@ -377,26 +336,13 @@ mod tests {
         let known_dist = Vector3::new(1000.0, 1000.0, -1000.0 );
         let offset_pos2 = planet.position_at_distance(&known_dist);
         println!("offset_pos2 {:?} ", offset_pos2);
-        assert_eq!(offset_pos2.alt, 1010.0);
-        assert_approx_eq!(offset_pos2.lat, 37.8805926, 1.0e-6);
-        assert_approx_eq!(offset_pos2.lon, 37.8805, 1.0e-6);
+        assert_approx_eq!(offset_pos2.alt, 1010.0);
+        assert_approx_eq!(offset_pos2.lat, 37.8805831528412, 1.0e-6);
+        assert_approx_eq!(offset_pos2.lon, -122.26132011145224, 1.0e-6);
 
     }
 
-    #[test]
-    fn test_calculate_inertial_distance() {
-        let zero_dist = Vector3::new(0.0, 0.0, 0.0 );
-        let home_pos = get_reference_position();
-        let clone_home = home_pos.clone();
 
-        let dist =
-            Planet::calculate_inertial_distance(&home_pos, &clone_home);
-        println!("inertial_dist: {:?} ", dist);
-        assert_eq!(zero_dist, dist);
-
-        //TODO test nonzero distance
-
-    }
 
     #[test]
     fn test_calculate_relative_distance() {
@@ -404,7 +350,7 @@ mod tests {
         let home_pos = get_reference_position();
         let clone_home = home_pos.clone();
 
-        let planet = Planet::new(&home_pos);
+        let planet = PlanetEarth::new(&home_pos);
         //distance from home position should essentially be zero
         let dist =
             planet.calculate_relative_distance(&clone_home);
@@ -414,36 +360,47 @@ mod tests {
         //TODO test other relative distance
     }
 
-    #[test]
-    fn test_add_distance_to_position() {
-        let home_pos = get_reference_position();
-        let known_dist = Vector3::new(1000.0,1000.0,-100.0);
-        let offset_pos =
-            Planet::add_distance_to_position(&home_pos, &known_dist);
-        println!("offset_pos: {:?}", offset_pos);
 
-        let dist =
-            Planet::calculate_inertial_distance(&home_pos, &offset_pos);
-        println!("inertial_dist: {:?} ", dist);
-
-        //inertial_dist:  [0.018981751, 0.014983975, 100.0]
-        assert_approx_eq!(dist[0], known_dist[0]);
-        assert_approx_eq!(dist[1], known_dist[1]);
-        assert_approx_eq!(dist[2], known_dist[2]);
-    }
 
     #[test]
     fn test_haversine_distance() {
         let home_pos = get_reference_position();
+        let clone_home = home_pos.clone();
         let next_pos = GlobalPosition {
             lat: 38.0,
             lon: -122.0,
             alt: 0.0
         };
 
-        let dist = Planet::haversine_distance(&home_pos, &next_pos);
+        let (_vec, dist) = PlanetEarth::haversine_distance(
+            PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &next_pos);
         println!("dist: {}", dist);
-        assert_approx_eq!(27853.0, dist, 0.25);
+        assert_approx_eq!(27.889e3, dist, 5.0);//27.889183319007888 km from WGS84
+
+        let (_vec, dist) = PlanetEarth::haversine_distance(
+            PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &clone_home);
+        println!("clone home dist: {}", dist);
+        assert_approx_eq!(0.0, dist, 1E-12);
+
+        //verify that a zero offset position has zero distance
+        let zero_dist = Vector3::new(0.0, 0.0, 0.0 );
+        let offset_pos = PlanetEarth::add_offset_to_position(
+            PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &zero_dist, );
+        let (_vec, dist) = PlanetEarth::haversine_distance(
+            PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &offset_pos);
+        println!("zero_dist dist: {}", dist);
+        assert_approx_eq!(0.0, dist, 1E-12);
+
+        //verify that adding a known distance works
+        let known_dist = Vector3::new(100.0,100.0,-100.0);
+        let offset_pos = PlanetEarth::add_offset_to_position(
+            PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &known_dist);
+        let (_vec, dist) = PlanetEarth::haversine_distance(
+            PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &offset_pos);
+        println!("known_dist dist: {}", dist);
+        assert_approx_eq!(dist, 141.421356237309505, 0.25);
+
+        //TODO look at components
     }
-    
+
 }

@@ -6,6 +6,7 @@ mod raw_types;
 
 /// For distance measurements
 pub type DistanceUnits = raw_types::Meters;
+pub type HighResDistanceUnits = raw_types::HighResolutionMeters;
 
 /// For angular position measurements
 pub type AngularPosUnits = raw_types::Radians;

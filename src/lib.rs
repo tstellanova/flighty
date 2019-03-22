@@ -19,7 +19,7 @@ mod models;
 pub mod simulato;
 
 pub mod planet;
-use planet::Planet;
+use planet::{Planetary, PlanetEarth};
 
 /**
 Tracks the "ideal" state of the vehicle, without sensor uncertainty.
@@ -37,9 +37,6 @@ pub struct VirtualVehicleState {
 
     /// Global position
     global_position: GlobalPosition,
-
-    /// Home position (a reference position upon which inertial frame is centered)
-    home_position: GlobalPosition,
 
     /// Local position: inertial frame distance from "home"
     pub inertial_position: Vector3<DistanceUnits>,
@@ -68,6 +65,9 @@ pub struct VirtualVehicleState {
     /// Idealized atmospheric air pressure at the current location
     pub local_air_pressure: PressureUnits,
 
+    /// The planetary environment the vehicle is in
+    planet: PlanetEarth,
+
 }
 
 impl VirtualVehicleState {
@@ -81,7 +81,6 @@ impl VirtualVehicleState {
                 lon: 0.0,
                 alt: 0.0
             },
-            home_position: *home,
 
             base_mag_field: Vector3::new(0.0, 0.0, 0.0),
             local_air_pressure: 0.0,
@@ -94,7 +93,10 @@ impl VirtualVehicleState {
             body_angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             body_angular_accel: Vector3::new(0.0, 0.0, 0.0),
             relative_airspeed: 0.0,
+
+            planet: PlanetEarth::new(&home),
         };
+
 
         inst.set_global_position(home, true);
 
@@ -103,12 +105,12 @@ impl VirtualVehicleState {
 
     pub fn set_global_position(&mut self, pos: &GlobalPosition,  update_local_pos: bool) {
         self.global_position = *pos;
-        let baro_press = Planet::altitude_to_baro_pressure(self.global_position.alt);
+        let baro_press = PlanetEarth::altitude_to_baro_pressure(self.global_position.alt);
         self.local_air_pressure = baro_press;
-        self.base_mag_field = Planet::calculate_mag_field(pos);
+        self.base_mag_field = self.planet.calculate_mag_field(pos);
         if update_local_pos {
             self.inertial_position =
-                Planet::calculate_inertial_distance(&self.home_position, pos);
+                self.planet.calculate_relative_distance(pos);
         }
     }
 
