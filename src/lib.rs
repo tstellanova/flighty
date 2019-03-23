@@ -7,37 +7,33 @@ LICENSE: See LICENSE file
 use nalgebra::{Vector3};
 
 
-mod physical_types;
+pub mod physical_types;
 
 use physical_types::*;
 
 mod sensors;
 use sensors::SensorLike;
 
-mod models;
+pub mod models;
 
 pub mod simulato;
 
 pub mod planet;
 use planet::{Planetary, PlanetEarth};
 
-/**
-Tracks the "ideal" state of the vehicle, without sensor uncertainty.
-We work with two reference frames:
-- Inertial frame: the North-East-Down (NED) external frame that references gravity ("down")
-- Body frame: references the vehicle's axes
-*/
-pub struct VirtualVehicleState {
+#[cfg(test)]
+#[macro_use]
+extern crate quickcheck;
 
-    /// Current time according the vehicle internal clock
-    pub base_time: TimeBaseUnits,
 
-    /// Generalized vehicle temperature
-    pub base_temperature: TemperatureUnits,
-
-    /// Global position
-    global_position: GlobalPosition,
-
+/// Stores the linear and angular
+/// position, velocity, acceleration of a rigid body (6 degrees of freedom)
+///
+/// We use two reference frames:
+/// - Inertial frame: the North-East-Down (NED) external frame that references gravity ("down")
+/// - Body frame: references the vehicle's axes
+///
+pub struct RigidBodyState {
     /// Local position: inertial frame distance from "home"
     pub inertial_position: Vector3<DistanceUnits>,
 
@@ -47,14 +43,44 @@ pub struct VirtualVehicleState {
     /// Translational acceleration in inertial frame
     pub inertial_accel:Vector3<AccelUnits>,
 
-    /// Angular position in body frame
+    /// Angular position in body frame (aka "attitude")
     pub body_angular_position: Vector3<AngularPosUnits>,
 
-    /// Angular velocity in body frame
+    /// Angular velocity in body frame (aka "rotation speed")
     pub body_angular_velocity: Vector3<AngularSpeedUnits>,
 
-    /// Angular acceleration in body frame
+    /// Angular acceleration in body frame (aka "rotation rate")
     pub body_angular_accel:Vector3<AngularAccelUnits>,
+}
+
+impl RigidBodyState {
+    pub fn new() -> RigidBodyState {
+        RigidBodyState {
+            inertial_position: Vector3::new(0.0, 0.0, 0.0),
+            inertial_velocity: Vector3::new(0.0, 0.0, 0.0),
+            inertial_accel: Vector3::new(0.0, 0.0, 0.0),
+
+            body_angular_position: Vector3::new(0.0, 0.0, 0.0),
+            body_angular_velocity: Vector3::new(0.0, 0.0, 0.0),
+            body_angular_accel: Vector3::new(0.0, 0.0, 0.0),
+        }
+    }
+}
+
+
+/// Tracks the "ideal" state of the vehicle, without sensor uncertainty.
+pub struct VirtualVehicleState {
+    /// Current time according the vehicle internal clock
+    pub base_time: TimeBaseUnits,
+
+    /// The kinematic rigid body state of the vehicle
+    pub kinematic: RigidBodyState,
+
+    /// Global position
+    global_position: GlobalPosition,
+
+    /// Generalized vehicle temperature
+    pub base_temperature: TemperatureUnits,
 
     /// Idealized magnetic field at the current location
     pub base_mag_field: Vector3<MagUnits>,
@@ -72,34 +98,20 @@ pub struct VirtualVehicleState {
 
 impl VirtualVehicleState {
 
-    pub fn new(home:&GlobalPosition) -> Self {
+    /// - ref_position : A reference global position from which inertial frame is measured
+    pub fn new(ref_position:&GlobalPosition) -> Self {
         let mut inst = VirtualVehicleState {
             base_time: 0,
+            kinematic:  RigidBodyState::new(),
+            global_position: *ref_position,
             base_temperature: 0.0,
-            global_position: GlobalPosition {
-                lat: 0.0,
-                lon: 0.0,
-                alt: 0.0
-            },
-
             base_mag_field: Vector3::new(0.0, 0.0, 0.0),
             local_air_pressure: 0.0,
-
-            inertial_position: Vector3::new(0.0, 0.0, 0.0),
-            inertial_velocity: Vector3::new(0.0, 0.0, 0.0),
-            inertial_accel: Vector3::new(0.0, 0.0, 0.0),
-
-            body_angular_position: Vector3::new(0.0, 0.0, 0.0),
-            body_angular_velocity: Vector3::new(0.0, 0.0, 0.0),
-            body_angular_accel: Vector3::new(0.0, 0.0, 0.0),
             relative_airspeed: 0.0,
-
-            planet: PlanetEarth::new(&home),
+            planet: PlanetEarth::new(&ref_position),
         };
 
-
-        inst.set_global_position(home, true);
-
+        inst.set_global_position(ref_position, true);
         inst
     }
 
@@ -109,7 +121,7 @@ impl VirtualVehicleState {
         self.local_air_pressure = baro_press;
         self.base_mag_field = self.planet.calculate_mag_field(pos);
         if update_local_pos {
-            self.inertial_position =
+            self.kinematic.inertial_position =
                 self.planet.calculate_relative_distance(pos);
         }
     }
@@ -119,15 +131,11 @@ impl VirtualVehicleState {
     }
 
 
-
 }
 
 
 
-
-/**
-Simulated sensed state
-*/
+/// Simulated sensed state
 pub struct SensedPhysicalState {
 
     pub temperature: TemperatureUnits,
@@ -178,7 +186,6 @@ impl SensedPhysicalState {
 mod tests {
     use crate::{SensedPhysicalState, VirtualVehicleState};
     use crate::physical_types::*;
-    use crate::simulato::Simulato;
 
 
     #[test]
@@ -208,11 +215,6 @@ mod tests {
         assert_eq!((diff < 1.0), false);
     }
 
-    #[test]
-    fn test_simulato() {
-        let mut simulato = Simulato::new();
-        simulato.load_vehicle_model();
 
-    }
 
 }

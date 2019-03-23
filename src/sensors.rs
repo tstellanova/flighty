@@ -78,9 +78,9 @@ impl SensorLike for GyroSensor {
 
     fn update(&mut self, state: &VirtualVehicleState)  -> &mut Self {
         //TODO functionalize this?
-        self.senso.inner[0].set_center_value(state.body_angular_velocity[0]);
-        self.senso.inner[1].set_center_value(state.body_angular_velocity[1]);
-        self.senso.inner[2].set_center_value(state.body_angular_velocity[2]);
+        self.senso.inner[0].set_center_value(state.kinematic.body_angular_velocity[0]);
+        self.senso.inner[1].set_center_value(state.kinematic.body_angular_velocity[1]);
+        self.senso.inner[2].set_center_value(state.kinematic.body_angular_velocity[2]);
         self
     }
 }
@@ -98,9 +98,9 @@ impl SensorLike for AccelSensor {
 
     fn update(&mut self, state: &VirtualVehicleState)  -> &mut Self {
         //TODO functionalize this?
-        self.senso.inner[0].set_center_value(state.inertial_accel[0]);
-        self.senso.inner[1].set_center_value(state.inertial_accel[1]);
-        self.senso.inner[2].set_center_value(state.inertial_accel[2]);
+        self.senso.inner[0].set_center_value(state.kinematic.inertial_accel[0]);
+        self.senso.inner[1].set_center_value(state.kinematic.inertial_accel[1]);
+        self.senso.inner[2].set_center_value(state.kinematic.inertial_accel[2]);
         self
     }
 }
