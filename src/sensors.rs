@@ -1,10 +1,8 @@
 
 
 
-extern crate num;
 
 use num::NumCast;
-
 
 use sensulator::Sensulator;
 
@@ -12,12 +10,12 @@ use crate::VirtualVehicleState;
 
 use crate::physical_types::*;
 use std::marker::PhantomData;
+use sensulator::MeasureVal;
 
 
-
-const GYRO_REL_ERR : GyroUnits = 0.0000266;
-const ACCEL_REL_ERR : AccelUnits = 0.0000267;
-const MAG_REL_ERR : MagUnits = 0.0000265;
+const GYRO_REL_ERR: GyroUnits = 0.0000266;
+const ACCEL_REL_ERR: AccelUnits = 0.0000267;
+const MAG_REL_ERR: MagUnits = 0.0000265;
 const GPS_DEGREES_REL_ERR: LatLonUnits =  1E-5;
 const GPS_ALTITUDE_REL_ERR: DistanceUnits = 1.0;
 //const ALT_REL_ERR: DistanceUnits = 1.5;
@@ -38,6 +36,7 @@ pub trait SensorLike {
 
 pub struct Sensor3d<T:NumCast> {
     inner: [Sensulator;3],
+    raw_val: [MeasureVal; 3],
     phantom: PhantomData<T>
 }
 
@@ -51,14 +50,27 @@ impl <T:NumCast> Sensor3d<T> {
                 Sensulator::new(0.0, 0.0, dev),
                 Sensulator::new(0.0, 0.0, dev),
             ],
+            raw_val: [0.0 , 0.0 , 0.0 ],
             phantom: PhantomData
         }
     }
 
-    pub fn peek(&self) -> (T, T, T) {
-        (num::cast(self.inner[0].peek()).unwrap(),
+    pub fn peek(&self) -> [T ; 3] {
+        [num::cast(self.inner[0].peek()).unwrap(),
          num::cast(self.inner[1].peek()).unwrap(),
-         num::cast(self.inner[2].peek()).unwrap(), )
+         num::cast(self.inner[2].peek()).unwrap(), ]
+    }
+
+    pub fn set_val_from_inner(&mut self) {
+        self.raw_val = [
+            self.inner[0].read(),
+            self.inner[1].read(),
+            self.inner[2].read(),
+            ];
+    }
+
+    pub fn get_val(&self) -> [MeasureVal; 3] {
+        self.raw_val
     }
 
 
@@ -72,8 +84,8 @@ pub struct GyroSensor {
 impl SensorLike for GyroSensor {
     fn new() -> Self {
         GyroSensor {
-            senso: Sensor3d::new(GYRO_REL_ERR),
-        }
+            senso: Sensor3d::new(GYRO_REL_ERR)
+         }
     }
 
     fn update(&mut self, state: &VirtualVehicleState)  -> &mut Self {
@@ -81,12 +93,14 @@ impl SensorLike for GyroSensor {
         self.senso.inner[0].set_center_value(state.kinematic.body_angular_velocity[0]);
         self.senso.inner[1].set_center_value(state.kinematic.body_angular_velocity[1]);
         self.senso.inner[2].set_center_value(state.kinematic.body_angular_velocity[2]);
+        self.senso.set_val_from_inner();
         self
     }
 }
 
+
 pub struct AccelSensor {
-    pub senso: Sensor3d<AccelUnits>
+    pub senso: Sensor3d<AccelUnits>,
 }
 
 impl SensorLike for AccelSensor {
@@ -101,10 +115,10 @@ impl SensorLike for AccelSensor {
         self.senso.inner[0].set_center_value(state.kinematic.inertial_accel[0]);
         self.senso.inner[1].set_center_value(state.kinematic.inertial_accel[1]);
         self.senso.inner[2].set_center_value(state.kinematic.inertial_accel[2]);
+        self.senso.set_val_from_inner();
         self
     }
 }
-
 
 pub struct MagSensor {
     senso: Sensor3d<MagUnits>
@@ -122,6 +136,7 @@ impl SensorLike for MagSensor {
         self.senso.inner[0].set_center_value(state.base_mag_field[0]);
         self.senso.inner[1].set_center_value(state.base_mag_field[1]);
         self.senso.inner[2].set_center_value(state.base_mag_field[2]);
+        self.senso.set_val_from_inner();
         self
     }
 }
@@ -130,6 +145,7 @@ pub struct GlobalPositionSensor {
     lat: Sensulator,
     lon: Sensulator,
     alt: Sensulator,
+    pub value:GlobalPosition,
 }
 
 impl SensorLike for GlobalPositionSensor {
@@ -139,6 +155,11 @@ impl SensorLike for GlobalPositionSensor {
             lat: Sensulator::new(0.0, 0.0, GPS_DEGREES_REL_ERR as f32),
             lon: Sensulator::new(0.0, 0.0, GPS_DEGREES_REL_ERR as f32),
             alt: Sensulator::new(0.0, 0.0, GPS_ALTITUDE_REL_ERR),
+            value: GlobalPosition {
+                lat: 0.0,
+                lon: 0.0,
+                alt: 0.0
+            }
         }
     }
 
@@ -146,6 +167,11 @@ impl SensorLike for GlobalPositionSensor {
         self.lat.set_center_value(state.global_position.lat as f32);
         self.lon.set_center_value(state.global_position.lon as f32);
         self.alt.set_center_value(state.global_position.alt);
+        self.value = GlobalPosition {
+            lat: self.lat.read() as LatLonUnits,
+            lon: self.lon.read() as LatLonUnits,
+            alt: self.alt.read() as DistanceUnits
+        };
         self
     }
 }

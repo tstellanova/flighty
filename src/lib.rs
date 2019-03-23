@@ -185,6 +185,7 @@ impl SensedPhysicalState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_approx_eq::assert_approx_eq;
 
     #[test]
     fn test_phys_init() {
@@ -205,8 +206,7 @@ mod tests {
         assert_eq!(virt.global_position.alt, pos.alt);
 
         let accel = sensed.accel.senso.peek();
-        let diff = (accel.0 - 0.0).abs();
-        assert_eq!( diff < 1E-3, true);
+        assert_approx_eq!(accel[0], 0.0, 1E-3);
 
         let diff_press = sensed.airspeed.peek();
         let diff = (diff_press - 0.0).abs();
