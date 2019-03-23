@@ -6,17 +6,15 @@ use flighty::physical_types::*;
 use flighty::models::ActuatorOutputs;
 
 #[test]
-pub fn test_vehicle_stuff() {
+pub fn test_vehicle_e2e() {
 
     let mut sim = Simulato::new();
 
-    let mut actuators: ActuatorOutputs = [0.0; 16];
-
     for i in 0..1000 {
         let time:TimeBaseUnits = i * 10;
-        actuators[0] = 0.1;
+        let actuators: ActuatorOutputs = [0.55; 16];
         sim.update(time, &actuators);
-        //TODO actually test something
+        //TODO test something useful
     }
 
 }

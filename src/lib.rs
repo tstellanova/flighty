@@ -184,9 +184,7 @@ impl SensedPhysicalState {
 
 #[cfg(test)]
 mod tests {
-    use crate::{SensedPhysicalState, VirtualVehicleState};
-    use crate::physical_types::*;
-
+    use super::*;
 
     #[test]
     fn test_phys_init() {
@@ -215,6 +213,24 @@ mod tests {
         assert_eq!((diff < 1.0), false);
     }
 
+
+    #[test]
+    fn test_rigid_body_init() {
+        let motion = RigidBodyState::new();
+        let zero_accel:Vector3<AccelUnits> = Vector3::new(0.0, 0.0, 0.0);
+        let zero_velocity:Vector3<SpeedUnits> = Vector3::new(0.0, 0.0, 0.0);
+        let zero_position:Vector3<DistanceUnits> = Vector3::new(0.0, 0.0, 0.0);
+        assert_eq!(zero_accel, motion.inertial_accel);
+        assert_eq!(zero_velocity, motion.inertial_velocity);
+        assert_eq!(zero_position, motion.inertial_position);
+
+        let zero_accel:Vector3<AngularAccelUnits> = Vector3::new(0.0, 0.0, 0.0);
+        let zero_velocity:Vector3<AngularSpeedUnits> = Vector3::new(0.0, 0.0, 0.0);
+        let zero_position:Vector3<AngularPosUnits> = Vector3::new(0.0, 0.0, 0.0);
+        assert_eq!(zero_accel, motion.body_angular_accel);
+        assert_eq!(zero_velocity, motion.body_angular_velocity);
+        assert_eq!(zero_position, motion.body_angular_position);
+    }
 
 
 }

@@ -30,7 +30,14 @@ pub type MagUnits = raw_types::MagUnitsGauss;
 /// For latitude and longitude
 pub type LatLonUnits = raw_types::WGS84Degrees;
 
-pub type TimeBaseUnits = raw_types::TimeMicroseconds;
+/// monotonicaly increasing time base units
+pub type TimeBaseUnits = raw_types::TimeWholeMicroseconds;
+
+/// time interval between events
+pub type TimeIntervalUnits = raw_types::TimeSecondsF32;
+
+/// multiplier for converting TimeBase delta to TimeInterval
+pub const TIME_BASE_DELTA_TO_INTERVAL: TimeIntervalUnits = 1E-6;
 
 /// For barometer, airspeed
 pub type PressureUnits = raw_types::PressureUnitsMillibar;

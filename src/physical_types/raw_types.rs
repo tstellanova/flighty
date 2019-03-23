@@ -20,7 +20,12 @@ pub type MagUnitsGauss = f32;
 /// For latitude and longitude
 pub type WGS84Degrees = f64;
 
-pub type TimeMicroseconds = u64;
+/// integer microseconds
+pub type TimeWholeMicroseconds = u64;
+
+/// fractional seconds
+pub type TimeSecondsF32 = f32;
+
 
 /// For airspeed, barometer etc
 pub type PressureUnitsMillibar = f32;

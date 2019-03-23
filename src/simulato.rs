@@ -34,7 +34,8 @@ impl Simulato {
     ///  - Then update the vehicle's sensed state.
     ///
     pub fn update(&mut self, time: TimeBaseUnits, actuators: &ActuatorOutputs) {
-        let dt = time - self.vehicle_state.base_time;
+        let dt: TimeIntervalUnits =
+            ((time - self.vehicle_state.base_time) as TimeIntervalUnits) * TIME_BASE_DELTA_TO_INTERVAL;
         self.vehicle_state.base_time = time;
         println!("time {} dt {} ", time, dt);
 
@@ -53,54 +54,66 @@ impl Simulato {
 
 #[cfg(test)]
 mod tests {
-    use crate::simulato::Simulato;
-    use crate::physical_types::*;
-    use crate::models::ActuatorOutputs;
+    use super::*;
     use rand::Rng;
 
+    fn check_basic_motion(time:TimeBaseUnits, state: &VirtualVehicleState) -> bool {
+        let time_check = state.base_time == time;
+        if !time_check {
+            println!("times: {}   {} ", time, state.base_time);
+        }
+
+        let accel_z = state.kinematic.inertial_accel[2];
+        let vel_z = state.kinematic.inertial_velocity[2];
+        let motion_check;
+        if accel_z != 0.0 {
+            motion_check = vel_z != 0.0;
+        }
+        else {
+            motion_check = true;
+        }
+
+        if !motion_check {
+            println!("accel_z {} vel_z {} ", accel_z, vel_z);
+        }
+
+        (time_check && motion_check)
+    }
 
     #[test]
     fn test_simulato() {
         let mut simulato = Simulato::new();
-        let mut actuators:ActuatorOutputs = [0.5; 16];
+        let mut actuators:ActuatorOutputs = [0.51; 16];
 
         assert_eq!(simulato.vehicle_state.base_time, 0);
         let mut rng = rand::thread_rng();
 
         for i in 0..100 {
-            let time:TimeBaseUnits = i * 10;
+            let time:TimeBaseUnits = i * 100000;
             let rand_act_level = rng.gen::<f32>();
             actuators[0] = rand_act_level;
 
             simulato.update(time, &actuators);
-            assert_eq!(simulato.vehicle_state.base_time, time);
-
-            //println!("act0: {} vel0: {} ", actuators[0], vel0);
-
-            //TODO
-            if time != 0 {
-                let vel0 = simulato.vehicle_state.kinematic.inertial_velocity[0];
-                assert_ne!(vel0, 0.0);
-            }
+            assert_eq!(true, check_basic_motion(time, &simulato.vehicle_state));
         }
     }
 
     quickcheck! {
-        fn check_simulato_update(
+        fn check_simulato_initial_update(
             time:TimeBaseUnits,
             act_val: f32 ) -> bool {
 
             let actuators: ActuatorOutputs = [act_val; 16];
             let mut simulato = Simulato::new();
+
             simulato.update(time, &actuators);
-            let time_check = simulato.vehicle_state.base_time == time;
-            if !time_check {
-                println!("times: {}   {} ", time, simulato.vehicle_state.base_time);
-            }
+            if !check_basic_motion(time, &simulato.vehicle_state) {
+             return false;
+             }
 
-            //TODO check stimulus of simulato
-            time_check
-
+            let time = 2*time;
+            simulato.update(time, &actuators);
+            check_basic_motion(time, &simulato.vehicle_state)
         }
     }
 
