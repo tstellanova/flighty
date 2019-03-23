@@ -155,6 +155,9 @@ pub struct SensedPhysicalState {
 
     /// Airspeed (differential pressure)
     pub airspeed: sensors::AirspeedSensor,
+
+    /// Atmospheric pressure
+    pub baro: sensors::AirPressureSensor,
 }
 
 impl SensedPhysicalState {
@@ -166,6 +169,7 @@ impl SensedPhysicalState {
             accel: sensors::AccelSensor::new(),
             mag: sensors::MagSensor::new(),
             airspeed: sensors::AirspeedSensor::new(),
+            baro: sensors::AirPressureSensor::new(),
         }
     }
 
@@ -175,7 +179,7 @@ impl SensedPhysicalState {
         self.accel.update(virt);
         self.mag.update(virt);
         self.airspeed.update(virt);
-
+        self.baro.update(virt);
         // No need to simulate wandering temperature?
         self.temperature = virt.base_temperature;
     }

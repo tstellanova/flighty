@@ -77,6 +77,7 @@ impl <T:NumCast> Sensor3d<T> {
 }
 
 
+
 pub struct GyroSensor {
     senso: Sensor3d<GyroUnits>
 }
@@ -145,9 +146,14 @@ pub struct GlobalPositionSensor {
     lat: Sensulator,
     lon: Sensulator,
     alt: Sensulator,
-    pub value:GlobalPosition,
+    value:GlobalPosition,
 }
 
+impl GlobalPositionSensor {
+    pub fn get_val(&self) -> GlobalPosition {
+        self.value
+    }
+}
 impl SensorLike for GlobalPositionSensor {
 
     fn new() -> Self {
@@ -174,6 +180,7 @@ impl SensorLike for GlobalPositionSensor {
         };
         self
     }
+
 }
 
 pub struct AirspeedSensor {
