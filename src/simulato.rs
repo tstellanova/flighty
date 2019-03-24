@@ -75,12 +75,12 @@ impl Simulato {
     ///  - Use the model to update the idealized virtual state of the vehicle.
     ///  - Then update the vehicle's sensed state.
     ///
-    pub fn update(&mut self, time: TimeBaseUnits, actuators: &ActuatorOutputs) {
+    pub fn update(&mut self, time: TimeBaseUnits, actuators: &ActuatorControls) {
         //TODO decide who actually generates the time base updates
         let dt: TimeIntervalUnits =
             ((time - self.vehicle_state.base_time) as TimeIntervalUnits) * TIME_BASE_DELTA_TO_INTERVAL;
         self.vehicle_state.base_time = time;
-        //println!("time {} dt {} ", time, dt);
+        println!("time {} dt {:.*} act: {:?}", time, 5, dt, actuators);
 
         (self.vehicle_model)(actuators, dt, &mut self.vehicle_state.kinematic);
 
@@ -91,7 +91,6 @@ impl Simulato {
         self.vehicle_state.set_global_position(&new_global_pos, false);
         self.sensed.update_from_virtual(&self.vehicle_state);
     }
-
 
     pub fn get_ref_position(&self) -> GlobalPosition {
         self.vehicle_state.planet.get_reference_position()

@@ -90,8 +90,8 @@ impl Planetary for PlanetEarth {
     }
 
     /// Given a position on the planet, calculate the expected magnetic field.
-    /// - See gufm1: https://pdfs.semanticscholar.org/0175/7d8d373355c0a2ae5c189ea2c95ca7bc0a25.pdf
-    /// - See NOAA calculators: https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml
+    /// - See [gufm1]( https://pdfs.semanticscholar.org/0175/7d8d373355c0a2ae5c189ea2c95ca7bc0a25.pdf)
+    /// - See [NOAA calculators](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
     ///
     fn calculate_mag_field(&self, _pos: &GlobalPosition) -> Vector3<MagUnits> {
         //TODO calculate mag field from planetary factors

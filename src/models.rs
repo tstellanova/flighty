@@ -5,18 +5,18 @@ use crate::RigidBodyState;
 use crate::physical_types::TimeIntervalUnits;
 
 
-pub type KinematicModelFn = fn(&ActuatorOutputs, interval: TimeIntervalUnits, &mut RigidBodyState);
+pub type KinematicModelFn = fn(&ActuatorControls, interval: TimeIntervalUnits, &mut RigidBodyState);
 
 
-pub fn empty_model_fn(_actuators: &ActuatorOutputs, _interval: TimeIntervalUnits, _kin: &mut RigidBodyState) {
+pub fn empty_model_fn(_actuators: &ActuatorControls, _interval: TimeIntervalUnits, _kin: &mut RigidBodyState) {
     //does nothing
 }
 
 /// Actuator outputs -1 .. 1 : Mapping depends on vehicle
-pub type ActuatorOutputs = [f32;16];
+/// Rotor channels will scale from 0..1
+pub type ActuatorControls = [f32;16];
 
-
-pub fn vtol_hybrid_model_fn(actuators: &ActuatorOutputs,
+pub fn vtol_hybrid_model_fn(actuators: &ActuatorControls,
                             interval: TimeIntervalUnits,
                             motion: &mut RigidBodyState) {
 
@@ -51,6 +51,10 @@ pub fn vtol_hybrid_model_fn(actuators: &ActuatorOutputs,
         motion.inertial_position[0] += motion.inertial_velocity[0] * interval;
         motion.inertial_position[1] += motion.inertial_velocity[1] * interval;
         motion.inertial_position[2] += motion.inertial_velocity[2] * interval;
+
+//        println!("interval: {} accel: {} vel: {} pos: {}", interval,
+//         motion.inertial_accel, motion.inertial_velocity, motion.inertial_position);
+
     }
     else {
         //TODO a model with proper inertia
@@ -99,7 +103,7 @@ mod tests {
 
         for _i in 0..num_steps {
             //actuators are set to less than that needed to stay aloft
-            let actuators: ActuatorOutputs = [0.25; 16];
+            let actuators: ActuatorControls = [0.25; 16];
             vtol_hybrid_model_fn(&actuators, step_interval, &mut motion);
             let cur_alt = motion.inertial_position[2];
             let alt_check = cur_alt > last_alt;//NED
@@ -126,7 +130,7 @@ mod tests {
 
         for _i in 0..num_steps {
             //actuator output is more than sufficient to stay aloft
-            let actuators: ActuatorOutputs = [0.51; 16];
+            let actuators: ActuatorControls = [0.51; 16];
             vtol_hybrid_model_fn(&actuators, step_interval, &mut motion);
             let cur_alt = motion.inertial_position[2];
             let alt_check = cur_alt < last_alt; //NED

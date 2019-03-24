@@ -132,7 +132,6 @@ impl VirtualVehicleState {
         self.global_position
     }
 
-
 }
 
 

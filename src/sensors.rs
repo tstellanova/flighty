@@ -257,6 +257,7 @@ impl SensorLike for AirPressureSensor {
     }
 
     fn update(&mut self, state: &VirtualVehicleState) -> &mut Self {
+        //println!("airpress: {}", state.local_air_pressure);
         self.pressure.set_center_value(state.local_air_pressure);
         self
     }
