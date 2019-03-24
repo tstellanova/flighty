@@ -80,9 +80,15 @@ impl Simulato {
         let dt: TimeIntervalUnits =
             ((time - self.vehicle_state.base_time) as TimeIntervalUnits) * TIME_BASE_DELTA_TO_INTERVAL;
         self.vehicle_state.base_time = time;
-        println!("time {} dt {} ", time, dt);
+        //println!("time {} dt {} ", time, dt);
 
         (self.vehicle_model)(actuators, dt, &mut self.vehicle_state.kinematic);
+
+        let new_global_pos =
+            self.vehicle_state.planet.position_at_distance(
+                &self.vehicle_state.kinematic.inertial_position);
+
+        self.vehicle_state.set_global_position(&new_global_pos, false);
         self.sensed.update_from_virtual(&self.vehicle_state);
     }
 

@@ -117,9 +117,11 @@ impl VirtualVehicleState {
 
     pub fn set_global_position(&mut self, pos: &GlobalPosition,  update_local_pos: bool) {
         self.global_position = *pos;
-        let baro_press = PlanetEarth::altitude_to_baro_pressure(self.global_position.alt);
-        self.local_air_pressure = baro_press;
+        self.local_air_pressure =
+            PlanetEarth::altitude_to_baro_pressure(self.global_position.alt);
         self.base_mag_field = self.planet.calculate_mag_field(pos);
+        //TODO Transform mag field by vehicle rotation
+
         if update_local_pos {
             self.kinematic.inertial_position =
                 self.planet.calculate_relative_distance(pos);

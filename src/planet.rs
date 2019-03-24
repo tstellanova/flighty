@@ -28,8 +28,6 @@ pub trait Planetary {
     /// calculate a new position some distance from reference position
     fn position_at_distance(&self, dist: &Vector3<DistanceUnits>) -> GlobalPosition;
 
-
-
 }
 
 /// Planetary environment calculations
@@ -41,6 +39,8 @@ pub struct PlanetEarth {
     /// reference or "home" position
     ref_position: GlobalPosition,
 
+    /// Precalculated magnetic field at the reference position
+    ref_mag_field:  Vector3<MagUnits>,
 }
 
 
@@ -77,8 +77,6 @@ impl Planetary for PlanetEarth {
         )
     }
 
-
-
     /**
     Convert altitude (meters) to standard barometric pressure (Millibars)
     Note: this formula is likely only useful under 10k feet altitude
@@ -97,16 +95,15 @@ impl Planetary for PlanetEarth {
     ///
     fn calculate_mag_field(&self, _pos: &GlobalPosition) -> Vector3<MagUnits> {
         //TODO calculate mag field from planetary factors
-        Vector3::new(
-            0.0,
-            0.0,
-            0.0
-        )
+        //for now we just return the same field as the reference position
+        self.ref_mag_field
     }
 }
 
 
 impl PlanetEarth {
+    /// Radius of the planet
+    const WGS84_EARTH_RADIUS: HighResDistanceUnits = 6.378137e6;
 
     const STD_PRESS: f64 = 101325.0;  // static pressure at sea level (Pa)
     const STD_TEMP: f64 = 288.15;    // standard temperature at sea level (K)
@@ -121,6 +118,7 @@ impl PlanetEarth {
         let mut inst = PlanetEarth {
             radius: Self::WGS84_EARTH_RADIUS,
             ref_position: *ref_pos,
+            ref_mag_field: Vector3::zeros()
         };
 
         inst.set_reference_position(ref_pos);
@@ -134,12 +132,22 @@ impl PlanetEarth {
     }
 
     fn precalc_mag_environment(&mut self) {
-        //TODO precalc mag declination etc
+
+        //TODO precalc mag field from location instead of hardcoding
+
+        // Given by NOAA for Berkeley, CA:
+        // in nanotesla: nT
+        // total_intensity, x,y,z:
+        // 48186.3, 22515.6, 5388.1, 42260.3
+        // 1 nanotesla = 1.0E-5 gauss
+
+        self.ref_mag_field = Vector3::new(
+            22515.6e-5,
+            5388.1e-5,
+            42260.3e-5
+        );
+
     }
-
-
-    /// Radius of the planet
-    const WGS84_EARTH_RADIUS: HighResDistanceUnits = 6.378137e6;
 
 
     /// Calculate a new GlobalPosition as a distance offset from a starting position.
@@ -205,8 +213,6 @@ impl PlanetEarth {
             total_dist
         )
     }
-
-
 
     /**
     Calculate magnetic field from the magnetic inclination and declination.
@@ -323,7 +329,7 @@ mod tests {
 
     #[test]
     fn test_position_at_distance() {
-        let zero_dist = Vector3::new(0.0, 0.0, 0.0 );
+        let zero_dist = Vector3::zeros();
         let home_pos = get_reference_position();
 
         let planet = PlanetEarth::new(&home_pos);
@@ -346,7 +352,7 @@ mod tests {
 
     #[test]
     fn test_calculate_relative_distance() {
-        let zero_dist = Vector3::new(0.0, 0.0, 0.0 );
+        let zero_dist = Vector3::zeros();
         let home_pos = get_reference_position();
         let clone_home = home_pos.clone();
 
@@ -383,7 +389,7 @@ mod tests {
         assert_approx_eq!(0.0, dist, 1E-12);
 
         //verify that a zero offset position has zero distance
-        let zero_dist = Vector3::new(0.0, 0.0, 0.0 );
+        let zero_dist = Vector3::zeros();
         let offset_pos = PlanetEarth::add_offset_to_position(
             PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &zero_dist, );
         let (_vec, dist) = PlanetEarth::haversine_distance(

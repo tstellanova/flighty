@@ -241,14 +241,13 @@ impl  AirspeedSensor {
 
 
 
-/**
-Sensor for ambient air pressure.
-Normally corresponds to altitude, temperature, and humidity.
-*/
+///
+/// Sensor for ambient air pressure.
+/// Normally corresponds to altitude, temperature, and humidity.
+///
 pub struct AirPressureSensor {
     pressure: Sensulator,
 }
-
 
 impl SensorLike for AirPressureSensor {
     fn new() -> Self {
@@ -262,7 +261,6 @@ impl SensorLike for AirPressureSensor {
         self
     }
 }
-
 
 impl AirPressureSensor {
 
