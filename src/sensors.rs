@@ -55,17 +55,15 @@ impl <T:NumCast> Sensor3d<T> {
         }
     }
 
-    pub fn peek(&self) -> [T ; 3] {
-        [num::cast(self.inner[0].peek()).unwrap(),
-         num::cast(self.inner[1].peek()).unwrap(),
-         num::cast(self.inner[2].peek()).unwrap(), ]
+    pub fn peek(&self) -> [MeasureVal; 3] {
+        self.raw_val
     }
 
     pub fn set_val_from_inner(&mut self) {
         self.raw_val = [
-            self.inner[0].read(),
-            self.inner[1].read(),
-            self.inner[2].read(),
+            self.inner[0].measure(),
+            self.inner[1].measure(),
+            self.inner[2].measure(),
             ];
     }
 
@@ -192,9 +190,9 @@ impl SensorLike for GlobalPositionSensor {
         self.lon.set_center_value(state.global_position.lon as f32);
         self.alt.set_center_value(state.global_position.alt);
         self.value = GlobalPosition {
-            lat: self.lat.read() as LatLonUnits,
-            lon: self.lon.read() as LatLonUnits,
-            alt: self.alt.read() as DistanceUnits
+            lat: self.lat.measure() as LatLonUnits,
+            lon: self.lon.measure() as LatLonUnits,
+            alt: self.alt.measure() as DistanceUnits
         };
         self
     }

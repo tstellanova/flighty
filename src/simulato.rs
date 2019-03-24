@@ -153,7 +153,7 @@ mod tests {
             time:TimeBaseUnits,
             act_val: f32 ) -> bool {
 
-            let actuators: ActuatorOutputs = [act_val; 16];
+            let actuators: ActuatorControls = [act_val; 16];
             let mut simulato = Simulato::new();
 
             simulato.update(time, &actuators);
