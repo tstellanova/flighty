@@ -61,8 +61,8 @@ pub fn vtol_hybrid_model_fn(actuators: &ActuatorOutputs,
         motion.inertial_position[2] += motion.inertial_velocity[2] * interval;
     }
 
-    println!("interval: {} accel: {} vel: {} pos: {}", interval,
-             motion.inertial_accel, motion.inertial_velocity, motion.inertial_position);
+//    println!("interval: {} accel: {} vel: {} pos: {}", interval,
+//             motion.inertial_accel, motion.inertial_velocity, motion.inertial_position);
 
 }
 

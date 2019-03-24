@@ -59,6 +59,17 @@ impl Simulato {
         diff
     }
 
+
+    pub fn micros_from_duration(duration: &Duration) -> TimeBaseUnits {
+        (duration.as_secs() * 1000000) + (duration.subsec_micros() as TimeBaseUnits)
+    }
+
+    pub fn increment_simulated_time(&mut self) {
+        //TODO allow simulated time to decouple from real time
+        let new_real_time = self.elapsed();
+        self.set_simulated_time(Self::micros_from_duration(&new_real_time));
+    }
+
     /// Heart of the update loop:
     ///  - Given a set of current actuator outputs,
     ///  - Use the model to update the idealized virtual state of the vehicle.
@@ -74,6 +85,7 @@ impl Simulato {
         (self.vehicle_model)(actuators, dt, &mut self.vehicle_state.kinematic);
         self.sensed.update_from_virtual(&self.vehicle_state);
     }
+
 
     pub fn get_ref_position(&self) -> GlobalPosition {
         self.vehicle_state.planet.get_reference_position()
