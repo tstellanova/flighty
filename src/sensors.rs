@@ -82,6 +82,12 @@ pub struct GyroSensor {
     senso: Sensor3d<GyroUnits>
 }
 
+impl GyroSensor {
+    pub fn get_val(&self) -> [GyroUnits; 3] {
+        self.senso.get_val()
+    }
+}
+
 impl SensorLike for GyroSensor {
     fn new() -> Self {
         GyroSensor {
@@ -104,6 +110,12 @@ pub struct AccelSensor {
     pub senso: Sensor3d<AccelUnits>,
 }
 
+impl AccelSensor {
+    pub fn get_val(&self) -> [AccelUnits; 3] {
+        self.senso.get_val()
+    }
+}
+
 impl SensorLike for AccelSensor {
     fn new() -> Self {
         AccelSensor {
@@ -123,6 +135,12 @@ impl SensorLike for AccelSensor {
 
 pub struct MagSensor {
     senso: Sensor3d<MagUnits>
+}
+
+impl MagSensor {
+    pub fn get_val(&self) -> [MagUnits; 3] {
+        self.senso.get_val()
+    }
 }
 
 impl SensorLike for MagSensor {

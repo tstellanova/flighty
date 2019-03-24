@@ -13,7 +13,7 @@ pub struct Simulato {
     pub abstime_offset: TimeBaseUnits,
     pub vehicle_state: VirtualVehicleState,
     vehicle_model: KinematicModelFn,
-    pub sensed_state: SensedPhysicalState,
+    pub sensed: SensedPhysicalState,
 }
 
 
@@ -32,7 +32,7 @@ impl Simulato {
             vehicle_state: VirtualVehicleState::new(&home),
             //TODO hardcoded for now. Should be configurable by env vars
             vehicle_model: vtol_hybrid_model_fn,
-            sensed_state: SensedPhysicalState::new()
+            sensed: SensedPhysicalState::new()
         }
     }
 
@@ -72,7 +72,7 @@ impl Simulato {
         println!("time {} dt {} ", time, dt);
 
         (self.vehicle_model)(actuators, dt, &mut self.vehicle_state.kinematic);
-        self.sensed_state.update_from_virtual(&self.vehicle_state);
+        self.sensed.update_from_virtual(&self.vehicle_state);
     }
 
     pub fn get_ref_position(&self) -> GlobalPosition {
