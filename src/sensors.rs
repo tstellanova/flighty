@@ -13,13 +13,32 @@ use std::marker::PhantomData;
 use sensulator::MeasureVal;
 
 
+const MIN_SENSOR_REL_ERR:f32  = 1E-5;
+const MIN_SENSOR_ABS_ERR:f32 = 1E-6;
+
 const GYRO_REL_ERR: GyroUnits = 0.0000266;
+const GYRO_ABS_ERR: GyroUnits = MIN_SENSOR_ABS_ERR;
+
 const ACCEL_REL_ERR: AccelUnits = 0.0000267;
+const ACCEL_ABS_ERR : AccelUnits = MIN_SENSOR_ABS_ERR;
+
 const MAG_REL_ERR: MagUnits = 0.0000265;
-const GPS_DEGREES_REL_ERR: LatLonUnits =  1E-5;
-const GPS_ALTITUDE_REL_ERR: DistanceUnits = 1.0;
+const MAG_ABS_ERR: MagUnits = MIN_SENSOR_ABS_ERR;
+
+
+const GPS_DEGREES_REL_ERR: LatLonUnits =  MIN_SENSOR_REL_ERR as LatLonUnits;
+const GPS_DEGREES_ABS_ERR: LatLonUnits = MIN_SENSOR_ABS_ERR as LatLonUnits;
+
+
+// this range appears to allow EKF fusion to begin
+const ALT_ABS_ERR: DistanceUnits = MIN_SENSOR_ABS_ERR;
+const ALT_REL_ERR: DistanceUnits = 1.5;
+
+
 //const ALT_REL_ERR: DistanceUnits = 1.5;
+
 const DIFF_PRESS_REL_ERR: PressureUnits = 1E-3;
+const DIFF_PRESS_ABS_ERR: PressureUnits = MIN_SENSOR_ABS_ERR;
 
 const AIR_PRESS_REL_ERR: PressureUnits = 1E-3;
 
@@ -42,13 +61,14 @@ pub struct Sensor3d<T:NumCast> {
 
 impl <T:NumCast> Sensor3d<T> {
 
-    fn new(deviation: T) -> Self {
+    fn new(absolute_err: T, deviation: T) -> Self {
+        let abs_err: f32 = num::cast(absolute_err).unwrap();
         let dev: f32 = num::cast(deviation).unwrap();
         Sensor3d {
             inner: [
-                Sensulator::new(0.0, 0.0, dev),
-                Sensulator::new(0.0, 0.0, dev),
-                Sensulator::new(0.0, 0.0, dev),
+                Sensulator::new(0.0, abs_err, dev),
+                Sensulator::new(0.0, abs_err, dev),
+                Sensulator::new(0.0, abs_err, dev),
             ],
             raw_val: [0.0 , 0.0 , 0.0 ],
             phantom: PhantomData
@@ -89,7 +109,7 @@ impl GyroSensor {
 impl SensorLike for GyroSensor {
     fn new() -> Self {
         GyroSensor {
-            senso: Sensor3d::new(GYRO_REL_ERR)
+            senso: Sensor3d::new(GYRO_ABS_ERR, GYRO_REL_ERR)
          }
     }
 
@@ -117,7 +137,7 @@ impl AccelSensor {
 impl SensorLike for AccelSensor {
     fn new() -> Self {
         AccelSensor {
-            senso: Sensor3d::new(ACCEL_REL_ERR),
+            senso: Sensor3d::new(ACCEL_ABS_ERR,ACCEL_REL_ERR),
         }
     }
 
@@ -144,7 +164,7 @@ impl MagSensor {
 impl SensorLike for MagSensor {
     fn new() -> Self {
         MagSensor {
-            senso: Sensor3d::new(MAG_REL_ERR),
+            senso: Sensor3d::new(MAG_ABS_ERR,MAG_REL_ERR),
         }
     }
 
@@ -174,9 +194,9 @@ impl SensorLike for GlobalPositionSensor {
 
     fn new() -> Self {
         GlobalPositionSensor {
-            lat: Sensulator::new(0.0, 0.0, GPS_DEGREES_REL_ERR as f32),
-            lon: Sensulator::new(0.0, 0.0, GPS_DEGREES_REL_ERR as f32),
-            alt: Sensulator::new(0.0, 0.0, GPS_ALTITUDE_REL_ERR),
+            lat: Sensulator::new(0.0, GPS_DEGREES_ABS_ERR as MeasureVal, GPS_DEGREES_REL_ERR as MeasureVal),
+            lon: Sensulator::new(0.0, GPS_DEGREES_ABS_ERR as MeasureVal, GPS_DEGREES_REL_ERR as MeasureVal),
+            alt: Sensulator::new(0.0, ALT_ABS_ERR, ALT_REL_ERR),
             value: GlobalPosition {
                 lat: 0.0,
                 lon: 0.0,
@@ -186,8 +206,8 @@ impl SensorLike for GlobalPositionSensor {
     }
 
     fn update(&mut self, state: &VirtualVehicleState) -> &mut Self {
-        self.lat.set_center_value(state.global_position.lat as f32);
-        self.lon.set_center_value(state.global_position.lon as f32);
+        self.lat.set_center_value(state.global_position.lat as MeasureVal);
+        self.lon.set_center_value(state.global_position.lon as MeasureVal);
         self.alt.set_center_value(state.global_position.alt);
         self.value = GlobalPosition {
             lat: self.lat.measure() as LatLonUnits,
@@ -200,7 +220,6 @@ impl SensorLike for GlobalPositionSensor {
 }
 
 pub struct AirspeedSensor {
-    alt_pressure: PressureUnits,
     airspeed: SpeedUnits,
     diff_press: Sensulator,
 }
@@ -208,25 +227,23 @@ pub struct AirspeedSensor {
 impl SensorLike for AirspeedSensor {
     fn new() -> Self {
         AirspeedSensor {
-            alt_pressure: 0.0,
             airspeed: 0.0,
-            diff_press: Sensulator::new(0.0, 0.0, DIFF_PRESS_REL_ERR ),
+            diff_press: Sensulator::new(0.0, DIFF_PRESS_ABS_ERR, DIFF_PRESS_REL_ERR ),
         }
     }
 
     fn update(&mut self, state: &VirtualVehicleState) -> &mut Self {
         //convert airspeed to differential pressure
         self.airspeed =  state.relative_airspeed;
-        self.alt_pressure = state.local_air_pressure;
         //R = 287.05 J/(kg*degK)  for dry air
-        let air_density_rho = self.alt_pressure / (GAS_CONSTANT_R1 * state.base_temperature);
+        let air_density_rho = state.local_air_pressure / (GAS_CONSTANT_R1 * state.base_temperature);
 
         // veloctiy = sqrt ( (2/rho) * (Ptotal - Pstatic) )
         // vel^2 = (2/rho) * DP
         //  DP = (rho / 2) * vel^2
         let dp = (self.airspeed * self.airspeed) * (air_density_rho / 2.0);
         self.diff_press.set_center_value(dp);
-
+        self.diff_press.measure();
         self
     }
 }
@@ -257,10 +274,15 @@ impl SensorLike for AirPressureSensor {
     fn update(&mut self, state: &VirtualVehicleState) -> &mut Self {
         //println!("airpress: {}", state.local_air_pressure);
         self.pressure.set_center_value(state.local_air_pressure);
+        self.pressure.measure();
         self
     }
+
+
 }
 
 impl AirPressureSensor {
-
+    pub fn peek(&self) -> PressureUnits {
+        self.pressure.peek()
+    }
 }

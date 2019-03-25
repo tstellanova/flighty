@@ -106,7 +106,7 @@ impl PlanetEarth {
     const WGS84_EARTH_RADIUS: HighResDistanceUnits = 6.378137e6;
 
     const STD_PRESS: f64 = 101325.0;  // static pressure at sea level (Pa)
-    const STD_TEMP: f64 = 288.15;    // standard temperature at sea level (K)
+    pub const STD_TEMP: f64 = 288.15;    // standard temperature at sea level (K)
     const LAPSE_RATE: f64 = -0.0065;   // standard temp altitude lapse rate (K/m)
     const MOL_MASS : f64 = 0.0289644;  // molar mass of Earth's air (kg/mol)
     const ACCEL_G : f64 = 9.80665;    // gravity acceleration (m/s^2)

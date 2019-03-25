@@ -22,7 +22,7 @@ pub type AccelUnits = raw_types::MetersPerSecondPerSecond;
 pub type AngularAccelUnits = raw_types::RadiansPerSecondPerSecond;
 
 /// For temperature measurements
-pub type TemperatureUnits = raw_types::DegreesCelsius;
+pub type TemperatureUnits = raw_types::DegreesKelvin;
 
 /// For magnetometers
 pub type MagUnits = raw_types::MagUnitsGauss;

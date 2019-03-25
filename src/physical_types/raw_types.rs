@@ -12,7 +12,7 @@ pub type AngleDegrees = f32;
 pub type HighResolutionMeters = f64;
 
 /// For temperature measurements
-pub type DegreesCelsius = f32;
+pub type DegreesKelvin = f32;
 
 /// For magnetometers
 pub type MagUnitsGauss = f32;

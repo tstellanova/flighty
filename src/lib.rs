@@ -104,7 +104,7 @@ impl VirtualVehicleState {
             base_time: 0,
             kinematic:  RigidBodyState::new(),
             global_position: *ref_position,
-            base_temperature: 0.0,
+            base_temperature: PlanetEarth::STD_TEMP as TemperatureUnits,
             base_mag_field: Vector3::new(0.0, 0.0, 0.0),
             local_air_pressure: 0.0,
             relative_airspeed: 0.0,
@@ -126,6 +126,7 @@ impl VirtualVehicleState {
             self.kinematic.inertial_position =
                 self.planet.calculate_relative_distance(pos);
         }
+
     }
 
     pub fn get_global_position(&self) -> GlobalPosition {
@@ -138,8 +139,6 @@ impl VirtualVehicleState {
 
 /// Simulated sensed state
 pub struct SensedPhysicalState {
-
-    pub temperature: TemperatureUnits,
 
     ///--- Data arriving directly from sensors:
     /// GPS
@@ -164,7 +163,6 @@ pub struct SensedPhysicalState {
 impl SensedPhysicalState {
     pub fn new() ->  Self {
         SensedPhysicalState {
-            temperature: 0.0,
             gps: sensors::GlobalPositionSensor::new(),
             gyro: sensors::GyroSensor::new(),
             accel: sensors::AccelSensor::new(),
@@ -181,8 +179,6 @@ impl SensedPhysicalState {
         self.mag.update(virt);
         self.airspeed.update(virt);
         self.baro.update(virt);
-        // No need to simulate wandering temperature?
-        self.temperature = virt.base_temperature;
     }
 }
 

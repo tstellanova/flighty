@@ -20,7 +20,6 @@ pub fn vtol_hybrid_model_fn(actuators: &ActuatorControls,
                             interval: TimeIntervalUnits,
                             motion: &mut RigidBodyState) {
 
-
     if actuators[0] != 0.0 && interval != 0.0 {
         //TODO map actuators to physical moment arms for torques etc
 

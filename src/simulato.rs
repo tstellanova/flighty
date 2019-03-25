@@ -80,7 +80,7 @@ impl Simulato {
         let dt: TimeIntervalUnits =
             ((time - self.vehicle_state.base_time) as TimeIntervalUnits) * TIME_BASE_DELTA_TO_INTERVAL;
         self.vehicle_state.base_time = time;
-        println!("time {} dt {:.*} act: {:?}", time, 5, dt, actuators);
+        //println!("time {} dt {:.*} act: {:?}", time, 5, dt, actuators);
 
         (self.vehicle_model)(actuators, dt, &mut self.vehicle_state.kinematic);
 
