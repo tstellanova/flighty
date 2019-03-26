@@ -30,7 +30,7 @@ impl Simulato {
             abstime_offset: 500,
 
             vehicle_state: VirtualVehicleState::new(&home),
-            //TODO hardcoded for now. Should be configurable by env vars
+            //TODO model transfer function hardcoded for now. Make configurable by env vars
             vehicle_model: vtol_hybrid_model_fn,
             sensed: SensedPhysicalState::new()
         }
@@ -76,7 +76,6 @@ impl Simulato {
     ///  - Then update the vehicle's sensed state.
     ///
     pub fn update(&mut self, time: TimeBaseUnits, actuators: &ActuatorControls) {
-        //TODO decide who actually generates the time base updates
         let dt: TimeIntervalUnits =
             ((time - self.vehicle_state.base_time) as TimeIntervalUnits) * TIME_BASE_DELTA_TO_INTERVAL;
         self.vehicle_state.base_time = time;
@@ -90,6 +89,7 @@ impl Simulato {
 
         self.vehicle_state.set_global_position(&new_global_pos, false);
         self.sensed.update_from_virtual(&self.vehicle_state);
+
     }
 
     pub fn get_ref_position(&self) -> GlobalPosition {

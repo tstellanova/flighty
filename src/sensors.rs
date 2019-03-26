@@ -42,7 +42,6 @@ const DIFF_PRESS_ABS_ERR: PressureUnits = MIN_SENSOR_ABS_ERR;
 
 const AIR_PRESS_REL_ERR: PressureUnits = 1E-3;
 
-const GAS_CONSTANT_R1: f32 = 287.05;
 
 
 
@@ -75,11 +74,7 @@ impl <T:NumCast> Sensor3d<T> {
         }
     }
 
-    pub fn peek(&self) -> [MeasureVal; 3] {
-        self.raw_val
-    }
-
-    pub fn set_val_from_inner(&mut self) {
+    fn set_val_from_inner(&mut self) {
         self.raw_val = [
             self.inner[0].measure(),
             self.inner[1].measure(),
@@ -220,28 +215,25 @@ impl SensorLike for GlobalPositionSensor {
 }
 
 pub struct AirspeedSensor {
-    airspeed: SpeedUnits,
     diff_press: Sensulator,
 }
 
 impl SensorLike for AirspeedSensor {
     fn new() -> Self {
         AirspeedSensor {
-            airspeed: 0.0,
             diff_press: Sensulator::new(0.0, DIFF_PRESS_ABS_ERR, DIFF_PRESS_REL_ERR ),
         }
     }
 
     fn update(&mut self, state: &VirtualVehicleState) -> &mut Self {
         //convert airspeed to differential pressure
-        self.airspeed =  state.relative_airspeed;
         //R = 287.05 J/(kg*degK)  for dry air
-        let air_density_rho = state.local_air_pressure / (GAS_CONSTANT_R1 * state.base_temperature);
+        let air_density_rho = state.get_local_air_density();
 
         // veloctiy = sqrt ( (2/rho) * (Ptotal - Pstatic) )
         // vel^2 = (2/rho) * DP
         //  DP = (rho / 2) * vel^2
-        let dp = (self.airspeed * self.airspeed) * (air_density_rho / 2.0);
+        let dp = (state.relative_airspeed * state.relative_airspeed) * (air_density_rho / 2.0);
         self.diff_press.set_center_value(dp);
         self.diff_press.measure();
         self
@@ -249,7 +241,7 @@ impl SensorLike for AirspeedSensor {
 }
 
 impl  AirspeedSensor {
-    pub fn peek(&self) -> PressureUnits {
+    pub fn get_val(&self) -> PressureUnits {
         self.diff_press.peek()
     }
 }
@@ -278,11 +270,10 @@ impl SensorLike for AirPressureSensor {
         self
     }
 
-
 }
 
 impl AirPressureSensor {
-    pub fn peek(&self) -> PressureUnits {
+    pub fn get_val(&self) -> PressureUnits {
         self.pressure.peek()
     }
 }

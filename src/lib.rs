@@ -96,6 +96,8 @@ pub struct VirtualVehicleState {
 
 }
 
+
+
 impl VirtualVehicleState {
 
     /// - ref_position : A reference global position from which inertial frame is measured
@@ -131,6 +133,11 @@ impl VirtualVehicleState {
 
     pub fn get_global_position(&self) -> GlobalPosition {
         self.global_position
+    }
+
+    pub fn get_local_air_density(&self) -> f32 {
+        const GAS_CONSTANT_R1: f32 = 287.05;
+        self.local_air_pressure / (GAS_CONSTANT_R1 * self.base_temperature)
     }
 
 }
@@ -179,6 +186,15 @@ impl SensedPhysicalState {
         self.mag.update(virt);
         self.airspeed.update(virt);
         self.baro.update(virt);
+
+//        println!("sensed {} alt {:.3} gyro {:.6} accel {:.6} mag {:.6} asp {:.6} baro {:.6}",
+//                 virt.base_time,
+//                 self.gps.get_val().alt,
+//                 self.gyro.get_val()[0],
+//                 self.accel.get_val()[0],
+//                 self.mag.get_val()[0],
+//                 self.airspeed.get_val(),
+//                 self.baro.get_val());
     }
 }
 
@@ -206,12 +222,11 @@ mod tests {
         sensed.update_from_virtual(&virt);
         assert_eq!(virt.global_position.alt, pos.alt);
 
-        let accel = sensed.accel.senso.peek();
+        let accel = sensed.accel.senso.get_val();
         assert_approx_eq!(accel[0], 0.0, 1E-3);
 
-        let diff_press = sensed.airspeed.peek();
-        let diff = (diff_press - 0.0).abs();
-        assert_eq!((diff < 1.0), false);
+        let diff_press = sensed.airspeed.get_val();
+        assert_approx_eq!(diff_press, 18.528276, 1E-3);//TODO verify speed from diff pressure
     }
 
 
@@ -232,6 +247,28 @@ mod tests {
         assert_eq!(zero_velocity, motion.body_angular_velocity);
         assert_eq!(zero_position, motion.body_angular_position);
     }
+
+//    #[test]
+//    fn test_set_global_position() {
+//        let home = GlobalPosition {
+//            lat: 37.8,
+//            lon: -122.2,
+//            alt: 10.0
+//        };
+//
+//        let new_pos = GlobalPosition {
+//            lat: 37.8001024,
+//            lon: -122.1997184,
+//            alt: 100.0
+//        };
+//        let mut virt = VirtualVehicleState::new(&home);
+//
+//        virt.set_global_position(&new_pos, true);
+//
+//        let expected_air_pressure = PlanetEarth::altitude_to_baro_pressure(new_pos.alt);
+//        assert_approx_eq!(expected_air_pressure, virt.local_air_pressure);
+//    }
+
 
 
 }

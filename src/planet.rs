@@ -98,6 +98,7 @@ impl Planetary for PlanetEarth {
         //for now we just return the same field as the reference position
         self.ref_mag_field
     }
+
 }
 
 
