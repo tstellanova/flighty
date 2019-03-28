@@ -48,8 +48,11 @@ pub fn vtol_hybrid_model_fn (
             motion.inertial_accel[2] = -0.001;
         }
 
+        //TODO figure out right way to incorporate enviro constraints
 //        if motion.inertial_position[2] > enviro.constraint.minimum[2] &&
 //            motion.inertial_position[2] < enviro.constraint.maximum[2] {}
+        motion.inertial_accel[0] +=  enviro.gravity[0];
+        motion.inertial_accel[1] +=  enviro.gravity[1];
         motion.inertial_accel[2] +=  enviro.gravity[2];
 
         motion.inertial_velocity[0] += motion.inertial_accel[0] * interval;
@@ -65,8 +68,12 @@ pub fn vtol_hybrid_model_fn (
 
     }
     else {
+
         //TODO a model with proper inertia
         motion.inertial_accel.fill(0.0);
+        motion.inertial_accel[0] +=  enviro.gravity[0];
+        motion.inertial_accel[1] +=  enviro.gravity[1];
+        motion.inertial_accel[2] +=  enviro.gravity[2];
 
         motion.inertial_position[0] += motion.inertial_velocity[0] * interval;
         motion.inertial_position[1] += motion.inertial_velocity[1] * interval;
