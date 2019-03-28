@@ -19,7 +19,7 @@ pub mod models;
 pub mod simulato;
 
 pub mod planet;
-use planet::{Planetary, PlanetEarth};
+use planet::{ExternalForceEnvironment, Planetary, PlanetEarth};
 
 #[cfg(test)]
 #[macro_use]
@@ -73,8 +73,8 @@ pub struct VirtualVehicleState {
     /// Current time according the vehicle internal clock
     pub base_time: TimeBaseUnits,
 
-    /// The kinematic rigid body state of the vehicle
-    pub kinematic: RigidBodyState,
+    /// The dynamic rigid body state of the vehicle
+    pub dynamics: RigidBodyState,
 
     /// Global position
     global_position: GlobalPosition,
@@ -94,6 +94,9 @@ pub struct VirtualVehicleState {
     /// The planetary environment the vehicle is in
     planet: PlanetEarth,
 
+    /// Simple snapshot of the local force environment
+    local_env: ExternalForceEnvironment,
+
 }
 
 
@@ -104,28 +107,30 @@ impl VirtualVehicleState {
     pub fn new(ref_position:&GlobalPosition) -> Self {
         let mut inst = VirtualVehicleState {
             base_time: 0,
-            kinematic:  RigidBodyState::new(),
+            dynamics:  RigidBodyState::new(),
             global_position: *ref_position,
             base_temperature: PlanetEarth::STD_TEMP as TemperatureUnits,
             base_mag_field: Vector3::new(0.0, 0.0, 0.0),
             local_air_pressure: 0.0,
             relative_airspeed: 0.0,
             planet: PlanetEarth::new(&ref_position),
+            local_env: PlanetEarth::default_local_environment(),
         };
 
         inst.set_global_position(ref_position, true);
         inst
     }
 
-    pub fn set_global_position(&mut self, pos: &GlobalPosition,  update_local_pos: bool) {
+    pub fn set_global_position(&mut self, pos: &GlobalPosition, update_local_pos: bool) {
         self.global_position = *pos;
         self.local_air_pressure =
             PlanetEarth::altitude_to_baro_pressure(self.global_position.alt);
         self.base_mag_field = self.planet.calculate_mag_field(pos);
-        //TODO Transform mag field by vehicle rotation
+
+        //TODO update ExternalForceEnvironment
 
         if update_local_pos {
-            self.kinematic.inertial_position =
+            self.dynamics.inertial_position =
                 self.planet.calculate_relative_distance(pos);
         }
 
@@ -226,7 +231,7 @@ mod tests {
         assert_approx_eq!(accel[0], 0.0, 1E-3);
 
         let diff_press = sensed.airspeed.get_val();
-        assert_approx_eq!(diff_press, 18.528276, 1E-3);//TODO verify speed from diff pressure
+        assert_approx_eq!(diff_press, 18.528276, 1E-2);//TODO verify speed from diff pressure
     }
 
 

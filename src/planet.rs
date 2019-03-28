@@ -7,6 +7,9 @@ use crate::physical_types::*;
 
 
 
+
+
+
 pub trait Planetary {
 
     /// Set a reference or "home" position from which relative distances can be calculated
@@ -27,6 +30,8 @@ pub trait Planetary {
 
     /// calculate a new position some distance from reference position
     fn position_at_distance(&self, dist: &Vector3<DistanceUnits>) -> GlobalPosition;
+
+    fn default_local_environment() -> ExternalForceEnvironment;
 
 }
 
@@ -97,6 +102,17 @@ impl Planetary for PlanetEarth {
         //TODO calculate mag field from planetary factors
         //for now we just return the same field as the reference position
         self.ref_mag_field
+    }
+
+    fn default_local_environment() -> ExternalForceEnvironment {
+        ExternalForceEnvironment {
+            gravity: Vector3::new(0.0, 0.0, 9.801405599),
+            wind: Vector3::zeros(),
+            constraint: GeoConstraintBox {
+                minimum: Vector3::new(-1000.0, -1000.0, 0.0),
+                maximum: Vector3::new(1000.0, 1000.0, 1000.0)
+            }
+        }
     }
 
 }
@@ -242,6 +258,23 @@ impl PlanetEarth {
 
 
 }
+
+/// Simplistic hardwall box that limits dynamic motion
+pub struct GeoConstraintBox {
+    pub minimum: Vector3<DistanceUnits>,
+    pub maximum: Vector3<DistanceUnits>,
+}
+
+pub struct ExternalForceEnvironment {
+    /// get local gravity at current position
+    pub gravity: Vector3<AccelUnits>,
+    /// get local wind speed at current position
+    pub wind: Vector3<SpeedUnits>,
+    /// get rough box that limits motion at current position, including ground/floor
+    pub constraint: GeoConstraintBox,
+}
+
+
 
 #[cfg(test)]
 mod tests {
