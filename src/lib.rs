@@ -74,10 +74,7 @@ pub struct VirtualVehicleState {
     pub base_time: TimeBaseUnits,
 
     /// The dynamic rigid body state of the vehicle
-    pub dynamics: RigidBodyState,
-
-    /// Global position
-    global_position: GlobalPosition,
+    pub kinematic: RigidBodyState,
 
     /// Generalized vehicle temperature
     pub base_temperature: TemperatureUnits,
@@ -97,6 +94,9 @@ pub struct VirtualVehicleState {
     /// Simple snapshot of the local force environment
     local_env: ExternalForceEnvironment,
 
+    /// Global position
+    global_position: GlobalPosition,
+
 }
 
 
@@ -107,7 +107,7 @@ impl VirtualVehicleState {
     pub fn new(ref_position:&GlobalPosition) -> Self {
         let mut inst = VirtualVehicleState {
             base_time: 0,
-            dynamics:  RigidBodyState::new(),
+            kinematic:  RigidBodyState::new(),
             global_position: *ref_position,
             base_temperature: PlanetEarth::STD_TEMP as TemperatureUnits,
             base_mag_field: Vector3::new(0.0, 0.0, 0.0),
@@ -128,9 +128,11 @@ impl VirtualVehicleState {
         self.base_mag_field = self.planet.calculate_mag_field(pos);
 
         //TODO update ExternalForceEnvironment
+        //self.local_env
+//        local_env: PlanetEarth::default_local_environment();
 
         if update_local_pos {
-            self.dynamics.inertial_position =
+            self.kinematic.inertial_position =
                 self.planet.calculate_relative_distance(pos);
         }
 
@@ -149,10 +151,10 @@ impl VirtualVehicleState {
 
 
 
-/// Simulated sensed state
-pub struct SensedPhysicalState {
+/// Simulates data arriving from sensors.
+///
+pub struct PhysicalSensors {
 
-    ///--- Data arriving directly from sensors:
     /// GPS
     pub gps: sensors::GlobalPositionSensor,
 
@@ -172,9 +174,9 @@ pub struct SensedPhysicalState {
     pub baro: sensors::AirPressureSensor,
 }
 
-impl SensedPhysicalState {
+impl PhysicalSensors {
     pub fn new() ->  Self {
-        SensedPhysicalState {
+        PhysicalSensors {
             gps: sensors::GlobalPositionSensor::new(),
             gyro: sensors::GyroSensor::new(),
             accel: sensors::AccelSensor::new(),
@@ -219,7 +221,7 @@ mod tests {
             alt: 0.0
         };
         let mut virt = VirtualVehicleState::new(&pos);
-        let mut sensed = SensedPhysicalState::new();
+        let mut sensed = PhysicalSensors::new();
         virt.relative_airspeed = 55.0;
         // 101325 Pascals in millibars
         virt.local_air_pressure = SEA_LEVEL_AIR_PRESSURE;

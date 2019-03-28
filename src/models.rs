@@ -2,8 +2,10 @@
 
 
 use crate::RigidBodyState;
-use crate::physical_types::TimeIntervalUnits;
-use crate::planet::ExternalForceEnvironment;
+use crate::physical_types::{DistanceUnits, TimeIntervalUnits};
+use crate::planet::{ExternalForceEnvironment, GeoConstraintBox};
+
+use nalgebra::Vector3;
 
 pub type DynamicModelFn = fn(
     actuators: &ActuatorControls,
@@ -23,6 +25,22 @@ pub fn vtol_hybrid_model_fn (
     enviro: &ExternalForceEnvironment,
     motion: &mut RigidBodyState)
 {
+
+    let constrained = needs_grounding(&enviro.constraint, motion);
+
+    if constrained {
+        //if constrained, cannot rotate or translate position
+        motion.inertial_accel = Vector3::zeros();
+        motion.inertial_velocity = Vector3::zeros();
+        motion.body_angular_accel = Vector3::zeros();
+        motion.body_angular_velocity = Vector3::zeros();
+
+        //TODO grounding is a special case of constraint -- generalize this (eg a ground vehicle could move in X,Y)
+        motion.inertial_position[2] = enviro.constraint.minimum[2];
+    }
+    else {
+        
+    }
 
 
     if actuators[0] != 0.0 && interval != 0.0 {
@@ -87,6 +105,14 @@ pub fn vtol_hybrid_model_fn (
 
 }
 
+
+/// The body is on the ground but thinks it's still moving
+fn needs_grounding(constraint: &GeoConstraintBox, motion: &RigidBodyState ) -> bool {
+    let z_pos = motion.inertial_position[2];
+    let z_vel = motion.inertial_velocity[2];
+    //TODO need to consider acceleration as well?
+    (z_pos <= constraint.minimum[2]) && (z_vel > 0.0)
+}
 
 /*
 To consider:

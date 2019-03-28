@@ -2,7 +2,7 @@
 
 use std::time::{Duration, SystemTime};
 
-use crate::{VirtualVehicleState, SensedPhysicalState};
+use crate::{VirtualVehicleState, PhysicalSensors};
 use crate::models::*;
 use crate::physical_types::*;
 use crate::planet::Planetary;
@@ -13,7 +13,7 @@ pub struct Simulato {
     pub abstime_offset: TimeBaseUnits,
     pub vehicle_state: VirtualVehicleState,
     vehicle_model: DynamicModelFn,
-    pub sensed: SensedPhysicalState,
+    pub sensed: PhysicalSensors,
 }
 
 
@@ -32,7 +32,7 @@ impl Simulato {
             vehicle_state: VirtualVehicleState::new(&home),
             //TODO model transfer function hardcoded for now. Make configurable by env vars
             vehicle_model: vtol_hybrid_model_fn,
-            sensed: SensedPhysicalState::new()
+            sensed: PhysicalSensors::new()
         }
     }
 
@@ -81,11 +81,11 @@ impl Simulato {
         self.vehicle_state.base_time = time;
         //println!("time {} dt {:.*} act: {:?}", time, 5, dt, actuators);
 
-        (self.vehicle_model)(actuators, dt, &self.vehicle_state.local_env,  &mut self.vehicle_state.dynamics);
+        (self.vehicle_model)(actuators, dt, &self.vehicle_state.local_env,  &mut self.vehicle_state.kinematic);
 
         let new_global_pos =
             self.vehicle_state.planet.position_at_distance(
-                &self.vehicle_state.dynamics.inertial_position);
+                &self.vehicle_state.kinematic.inertial_position);
 
         self.vehicle_state.set_global_position(&new_global_pos, false);
         self.sensed.update_from_virtual(&self.vehicle_state);
@@ -112,8 +112,8 @@ mod tests {
             println!("times: {}   {} ", time, state.base_time);
         }
 
-        let accel_z = state.dynamics.inertial_accel[2];
-        let vel_z = state.dynamics.inertial_velocity[2];
+        let accel_z = state.kinematic.inertial_accel[2];
+        let vel_z = state.kinematic.inertial_velocity[2];
         let motion_check;
         if accel_z != 0.0 {
             motion_check = vel_z != 0.0;

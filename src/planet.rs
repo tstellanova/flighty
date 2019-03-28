@@ -32,6 +32,7 @@ pub trait Planetary {
     fn position_at_distance(&self, dist: &Vector3<DistanceUnits>) -> GlobalPosition;
 
     fn default_local_environment() -> ExternalForceEnvironment;
+    fn local_environment(&self) ->ExternalForceEnvironment;
 
 }
 
@@ -105,6 +106,18 @@ impl Planetary for PlanetEarth {
     }
 
     fn default_local_environment() -> ExternalForceEnvironment {
+        ExternalForceEnvironment {
+            gravity: Vector3::new(0.0, 0.0, 9.801405599),
+            wind: Vector3::zeros(),
+            constraint: GeoConstraintBox {
+                minimum: Vector3::new(-1000.0, -1000.0, 0.0),
+                maximum: Vector3::new(1000.0, 1000.0, 1000.0)
+            }
+        }
+    }
+
+    fn local_environment(&self) -> ExternalForceEnvironment {
+        //TODO base local_environment on current position
         ExternalForceEnvironment {
             gravity: Vector3::new(0.0, 0.0, 9.801405599),
             wind: Vector3::zeros(),
