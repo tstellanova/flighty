@@ -58,36 +58,26 @@ pub fn vtol_hybrid_model_fn (
     enviro: &ExternalForceEnvironment,
     motion: &mut RigidBodyState)
 {
-    let constrained = needs_grounding(&enviro.constraint, motion);
+    enforce_constraints(&enviro.constraint, motion);
 
-    if constrained {
-        force_grounding(enviro, motion);
-    }
-    else {
-        motion.translation_constrained[2] = false;
-    }
-
+    // collect internal (actuator) forces
     let int_fortorks = internal_forces_and_torques_vtol_hybrid(&actuators);
+    // collect external forces (such as gravity and wind)
     let ext_fortorks = external_forces_and_torques_vtol_hybrid(&motion, &enviro);
+    // sum all forces
     let sum_fortorks = ForcesAndTorques::sum(&int_fortorks, &ext_fortorks);
 
-    motion.inertial_accel[0] = sum_fortorks.forces[0] / VEHICLE_MASS_VTOL_HYBRID;
-    motion.inertial_accel[1] = sum_fortorks.forces[1] / VEHICLE_MASS_VTOL_HYBRID;
-    motion.inertial_accel[2] = sum_fortorks.forces[2] / VEHICLE_MASS_VTOL_HYBRID;
-
     for i in 0..3 {
+        motion.inertial_accel[i] = sum_fortorks.forces[i] / VEHICLE_MASS_VTOL_HYBRID;
+
         if !motion.translation_constrained[i] {
             motion.inertial_velocity[i] += motion.inertial_accel[i] * interval;
             motion.inertial_position[i] += motion.inertial_velocity[i] * interval;
         }
     }
 
-    //recheck constraint after applying acceleration
-    if needs_grounding(&enviro.constraint, motion) {
-        force_grounding(enviro, motion);
-    } else {
-        motion.translation_constrained[2] = false;
-    }
+    //recheck constraints after applying acceleration
+    enforce_constraints(&enviro.constraint, motion);
 
     //TODO handle torque
 
@@ -95,18 +85,7 @@ pub fn vtol_hybrid_model_fn (
 //             motion.inertial_accel, motion.inertial_velocity, motion.inertial_position);
 }
 
-fn force_grounding(enviro: &ExternalForceEnvironment,
-                   motion: &mut RigidBodyState) {
-    //println!("grounding!");
-    motion.translation_constrained[2] = true;
-    // gravity is still sensed by accelerometer when grounded
-    // but it doesn't cause motion when grounded
-    //motion.inertial_accel[2] = 0.0;
-    motion.inertial_velocity[2] = 0.0;
-    motion.inertial_position[2] = enviro.constraint.minimum[2];
 
-    //TODO generalize angular to allow ground travel?
-}
 
 ///
 /// sum all forces and torques of actuators
@@ -150,18 +129,23 @@ fn external_forces_and_torques_vtol_hybrid(_kinematic: &RigidBodyState,
 }
 
 
-/// The body is on the ground but thinks it's still moving
-fn needs_grounding(constraint: &GeoConstraintBox, motion: &RigidBodyState ) -> bool {
+///
+/// Check whether the constraints prevent the body from moving in a particular dimension
+///
+fn enforce_constraints(constraint: &GeoConstraintBox, motion: &mut RigidBodyState ) {
+    //TODO enforce x-y constraints?
     let z_pos = motion.inertial_position[2];
     let z_vel = motion.inertial_velocity[2];
 
     // if vehicle is on the floor and has nonzero Z momentum, need to be grounded
-    let result = (z_pos >= constraint.minimum[2]) && (z_vel > 0.0);
-//    if result  {
-//        println!("z_pos: {} z_vel: {}", z_pos, z_vel);
-//    }
-    result
+    if (z_pos >= constraint.minimum[2]) && (z_vel > 0.0) {
+        motion.translation_constrained[2] = true;
+        motion.inertial_velocity[2] = 0.0; //constrained: cannot move
+        motion.inertial_position[2] = constraint.minimum[2];
+    }
 }
+
+
 
 /*
 To consider:
