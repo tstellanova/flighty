@@ -65,32 +65,31 @@ pub fn vtol_hybrid_model_fn (
     }
     else {
         motion.translation_constrained[2] = false;
-        let int_fortorks = internal_forces_and_torques_vtol_hybrid(&actuators);
-        let ext_fortorks = external_forces_and_torques_vtol_hybrid(&motion, &enviro);
-        let sum_fortorks = ForcesAndTorques::sum(&int_fortorks, &ext_fortorks);
-
-        motion.inertial_accel[0] = sum_fortorks.forces[0] / VEHICLE_MASS_VTOL_HYBRID;
-        motion.inertial_accel[1] = sum_fortorks.forces[1] / VEHICLE_MASS_VTOL_HYBRID;
-        motion.inertial_accel[2] = sum_fortorks.forces[2] / VEHICLE_MASS_VTOL_HYBRID;
-
-        motion.inertial_velocity[0] += motion.inertial_accel[0] * interval;
-        motion.inertial_velocity[1] += motion.inertial_accel[1] * interval;
-        motion.inertial_velocity[2] += motion.inertial_accel[2] * interval;
-
-        motion.inertial_position[0] += motion.inertial_velocity[0] * interval;
-        motion.inertial_position[1] += motion.inertial_velocity[1] * interval;
-        motion.inertial_position[2] += motion.inertial_velocity[2] * interval;
-
-        //recheck constraint after applying acceleration
-        if needs_grounding(&enviro.constraint, motion) {
-            force_grounding(enviro, motion);
-        }
-        else  if (motion.inertial_velocity[2] == 0.0) && (motion.inertial_accel[2] != 0.0) {
-            println!("interval: {}", interval);
-        }
-
-        //TODO handle torque
     }
+
+    let int_fortorks = internal_forces_and_torques_vtol_hybrid(&actuators);
+    let ext_fortorks = external_forces_and_torques_vtol_hybrid(&motion, &enviro);
+    let sum_fortorks = ForcesAndTorques::sum(&int_fortorks, &ext_fortorks);
+
+    motion.inertial_accel[0] = sum_fortorks.forces[0] / VEHICLE_MASS_VTOL_HYBRID;
+    motion.inertial_accel[1] = sum_fortorks.forces[1] / VEHICLE_MASS_VTOL_HYBRID;
+    motion.inertial_accel[2] = sum_fortorks.forces[2] / VEHICLE_MASS_VTOL_HYBRID;
+
+    for i in 0..3 {
+        if !motion.translation_constrained[i] {
+            motion.inertial_velocity[i] += motion.inertial_accel[i] * interval;
+            motion.inertial_position[i] += motion.inertial_velocity[i] * interval;
+        }
+    }
+
+    //recheck constraint after applying acceleration
+    if needs_grounding(&enviro.constraint, motion) {
+        force_grounding(enviro, motion);
+    } else {
+        motion.translation_constrained[2] = false;
+    }
+
+    //TODO handle torque
 
 //    println!("interval: {} accel: {} vel: {} pos: {}", interval,
 //             motion.inertial_accel, motion.inertial_velocity, motion.inertial_position);
@@ -100,13 +99,13 @@ fn force_grounding(enviro: &ExternalForceEnvironment,
                    motion: &mut RigidBodyState) {
     //println!("grounding!");
     motion.translation_constrained[2] = true;
-    motion.inertial_accel[2] = 0.0;
+    // gravity is still sensed by accelerometer when grounded
+    // but it doesn't cause motion when grounded
+    //motion.inertial_accel[2] = 0.0;
     motion.inertial_velocity[2] = 0.0;
     motion.inertial_position[2] = enviro.constraint.minimum[2];
 
     //TODO generalize angular to allow ground travel?
-    motion.body_angular_accel = Vector3::zeros();
-    motion.body_angular_velocity = Vector3::zeros();
 }
 
 ///
