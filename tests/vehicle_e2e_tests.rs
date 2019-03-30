@@ -1,29 +1,37 @@
 extern crate flighty;
 
 use flighty::simulato::*;
-//use flighty::*;
+
 use flighty::physical_types::*;
 use flighty::models::ActuatorControls;
+use assert_approx_eq::assert_approx_eq;
+
+fn get_test_reference_position() -> GlobalPosition {
+    GlobalPosition {
+        lat: 37.8716, //degrees
+        lon: -122.2727, //degrees
+        alt_wgs84: 10.0 //meters
+    }
+}
 
 #[test]
-pub fn test_vehicle_e2e() {
+pub fn test_vehicle_takeoff() {
 
-    let mut sim = Simulato::new();
+    let mut sim = Simulato::new(&get_test_reference_position());
 
-    let mut last_time:TimeBaseUnits = 0;
+    const EXPECTED_Z_ACCEL: AccelUnits = -33.342613; //TODO derive from vehicle weight
+
     for _i in 0..100 {
-        let actuators: ActuatorControls = [0.55; 16];
-        //TODO replace this hack perf test with benchmark?
+        //max takeoff thrust
+        let actuators: ActuatorControls = [1.0; 16];
+
         sim.increment_simulated_time();
         let time = sim.get_simulated_time();
         sim.update(time, &actuators);
-//        if 0 != last_time {
-//            let dt = time - last_time;
-//            println!("dt: {}", dt);
-//            assert_eq!( (dt < 100), true);
-//        }
-//        last_time = time;
 
+        let z_accel = sim.vehicle_state.kinematic.inertial_accel[2];
+        println!("z_accel exp {} act {}",EXPECTED_Z_ACCEL, z_accel);
+        assert_approx_eq!(z_accel, EXPECTED_Z_ACCEL);
     }
 
 }

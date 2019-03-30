@@ -195,7 +195,7 @@ impl SensorLike for GlobalPositionSensor {
             value: GlobalPosition {
                 lat: 0.0,
                 lon: 0.0,
-                alt: 0.0
+                alt_wgs84: 0.0
             }
         }
     }
@@ -203,11 +203,11 @@ impl SensorLike for GlobalPositionSensor {
     fn update(&mut self, state: &VirtualVehicleState) -> &mut Self {
         self.lat.set_center_value(state.global_position.lat as MeasureVal);
         self.lon.set_center_value(state.global_position.lon as MeasureVal);
-        self.alt.set_center_value(state.global_position.alt);
+        self.alt.set_center_value(state.global_position.alt_wgs84);
         self.value = GlobalPosition {
             lat: self.lat.measure() as LatLonUnits,
             lon: self.lon.measure() as LatLonUnits,
-            alt: self.alt.measure() as DistanceUnits
+            alt_wgs84: self.alt.measure() as DistanceUnits
         };
         self
     }

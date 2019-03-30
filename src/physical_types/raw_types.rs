@@ -26,8 +26,14 @@ pub type TimeWholeMicroseconds = u64;
 /// fractional seconds
 pub type TimeSecondsF32 = f32;
 
-
 /// For airspeed, barometer etc
 pub type PressureUnitsMillibar = f32;
 // multiply millibars by 100 to get Pascals
 //pub type PressureUnitsPascal = f32;
+
+
+pub type Newton = f32;
+pub type NewtonMeter = f32;
+
+pub type Kilogram = f32;
+pub type KilogramMeterSquared = f32;

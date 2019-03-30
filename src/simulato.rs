@@ -1,4 +1,7 @@
-
+/**
+Copyright (c) 2019 Todd Stellanova
+LICENSE: See LICENSE file
+*/
 
 use std::time::{Duration, SystemTime};
 
@@ -18,18 +21,13 @@ pub struct Simulato {
 
 
 impl Simulato {
-    pub fn new() -> Self {
-        let home = GlobalPosition {
-            lat: 37.8001024,
-            lon: -122.1997184,
-            alt: 10.0
-        };
+    pub fn new(home: &GlobalPosition) -> Self {
         Simulato {
             boot_time: SystemTime::now(),
             simulated_time: 0,
             abstime_offset: 500,
 
-            vehicle_state: VirtualVehicleState::new(&home),
+            vehicle_state: VirtualVehicleState::new(home),
             //TODO model transfer function hardcoded for now. Make configurable by env vars
             vehicle_model: vtol_hybrid_model_fn,
             sensed: PhysicalSensors::new()
@@ -76,8 +74,7 @@ impl Simulato {
     ///  - Then update the vehicle's sensed state.
     ///
     pub fn update(&mut self, time: TimeBaseUnits, actuators: &ActuatorControls) {
-        let dt: TimeIntervalUnits =
-            ((time - self.vehicle_state.base_time) as TimeIntervalUnits) * TIME_BASE_DELTA_TO_INTERVAL;
+        let dt: TimeIntervalUnits = time_base_delta_to_interval(time - self.vehicle_state.base_time);
         self.vehicle_state.base_time = time;
         //println!("time {} dt {:.*} act: {:?}", time, 5, dt, actuators);
 
@@ -104,18 +101,21 @@ impl Simulato {
 #[cfg(test)]
 mod tests {
     use super::*;
-    //use rand::Rng;
+    use rand::prelude::*;
 
-    fn check_basic_motion(time:TimeBaseUnits, state: &VirtualVehicleState) -> bool {
-        let time_check = state.base_time == time;
-        if !time_check {
-            println!("times: {}   {} ", time, state.base_time);
+    fn get_test_reference_position() -> GlobalPosition {
+        GlobalPosition {
+            lat: 37.8716, //degrees
+            lon: -122.2727, //degrees
+            alt_wgs84: 10.0 //meters
         }
+    }
 
+    fn check_basic_motion( state: &VirtualVehicleState) -> bool {
         let accel_z = state.kinematic.inertial_accel[2];
         let vel_z = state.kinematic.inertial_velocity[2];
         let motion_check;
-        if accel_z != 0.0 {
+        if accel_z != 0.0  && !state.kinematic.translation_constrained[2] {
             motion_check = vel_z != 0.0;
         }
         else {
@@ -126,44 +126,49 @@ mod tests {
             println!("accel_z {} vel_z {} ", accel_z, vel_z);
         }
 
-        (time_check && motion_check)
+        motion_check
     }
 
     //TODO fix this random actuator test-- fails for small actuator values
-//    #[test]
-//    fn test_simulato() {
-//        let mut simulato = Simulato::new();
-//        let mut actuators:ActuatorOutputs = [0.51; 16];
-//
-//        assert_eq!(simulato.vehicle_state.base_time, 0);
-//        let mut rng = rand::thread_rng();
-//
-//        for i in 0..100 {
-//            let time:TimeBaseUnits = i * 100000;
-//            let rand_act_level = rng.gen::<f32>();
-//            actuators[0] = rand_act_level;
-//
-//            simulato.update(time, &actuators);
-//            assert_eq!(true, check_basic_motion(time, &simulato.vehicle_state));
-//        }
-//    }
+    #[test]
+    fn test_rand_actuator() {
+        const TEST_INTERVAL: TimeBaseUnits = 1000; //millisecond
+        let mut simulato = Simulato::new(&get_test_reference_position());
+        let mut rng = rand::thread_rng();
+        simulato.increment_simulated_time();
+        let start_time = simulato.get_simulated_time();
+
+        for i in 0..100 {
+            let next_time = i*TEST_INTERVAL + start_time;
+            let rand_act_level = rng.gen::<f32>().abs();
+            let actuators: ActuatorControls = [rand_act_level; 16];
+
+            simulato.update(next_time, &actuators);
+            assert_eq!(true, check_basic_motion(&simulato.vehicle_state));
+        }
+    }
+
 
     quickcheck! {
-        fn check_simulato_initial_update(
-            time:TimeBaseUnits,
-            act_val: f32 ) -> bool {
-
+        fn quickcheck_serial_update(act_val: f32 ) -> bool {
             let actuators: ActuatorControls = [act_val; 16];
-            let mut simulato = Simulato::new();
+            let mut simulato = Simulato::new(&get_test_reference_position());
+            simulato.increment_simulated_time();
 
-            simulato.update(time, &actuators);
-            if !check_basic_motion(time, &simulato.vehicle_state) {
-             return false;
-             }
+            const TEST_INTERVAL: TimeBaseUnits = 1000; //millisecond
+            let time = simulato.get_simulated_time() + TEST_INTERVAL;
 
-            let time = 2*time;
+            simulato.set_simulated_time(time);
             simulato.update(time, &actuators);
-            check_basic_motion(time, &simulato.vehicle_state)
+            if !check_basic_motion( &simulato.vehicle_state) {
+                return false;
+            }
+
+            let time = time + TEST_INTERVAL;
+            simulato.set_simulated_time(time);
+            simulato.update(time, &actuators);
+
+            check_basic_motion(&simulato.vehicle_state)
         }
     }
 

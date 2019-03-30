@@ -51,6 +51,9 @@ pub struct RigidBodyState {
 
     /// Angular acceleration in body frame (aka "rotation rate")
     pub body_angular_accel:Vector3<AngularAccelUnits>,
+
+    /// whether the body's motion is constrained in translation
+    pub translation_constrained: [bool; 3],
 }
 
 impl RigidBodyState {
@@ -63,6 +66,8 @@ impl RigidBodyState {
             body_angular_position: Vector3::new(0.0, 0.0, 0.0),
             body_angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             body_angular_accel: Vector3::new(0.0, 0.0, 0.0),
+
+            translation_constrained: [false, false, false],
         }
     }
 }
@@ -124,7 +129,7 @@ impl VirtualVehicleState {
     pub fn set_global_position(&mut self, pos: &GlobalPosition, update_local_pos: bool) {
         self.global_position = *pos;
         self.local_air_pressure =
-            PlanetEarth::altitude_to_baro_pressure(self.global_position.alt);
+            PlanetEarth::altitude_to_baro_pressure(self.global_position.alt_wgs84);
         self.base_mag_field = self.planet.calculate_mag_field(pos);
 
         //TODO update ExternalForceEnvironment
@@ -218,7 +223,7 @@ mod tests {
         let pos = GlobalPosition {
             lat: 0.0,
             lon: 0.0,
-            alt: 0.0
+            alt_wgs84: 0.0
         };
         let mut virt = VirtualVehicleState::new(&pos);
         let mut sensed = PhysicalSensors::new();
@@ -227,7 +232,7 @@ mod tests {
         virt.local_air_pressure = SEA_LEVEL_AIR_PRESSURE;
 
         sensed.update_from_virtual(&virt);
-        assert_eq!(virt.global_position.alt, pos.alt);
+        assert_eq!(virt.global_position.alt_wgs84, pos.alt_wgs84);
 
         let accel = sensed.accel.senso.get_val();
         assert_approx_eq!(accel[0], 0.0, 1E-3);
