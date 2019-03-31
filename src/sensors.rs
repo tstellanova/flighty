@@ -35,7 +35,10 @@ const ALT_ABS_ERR: DistanceUnits = MIN_SENSOR_ABS_ERR;
 const ALT_REL_ERR: DistanceUnits = 1.5;
 
 
-//const ALT_REL_ERR: DistanceUnits = 1.5;
+// GPS velocity errors
+const GPS_VEL_ABS_ERR: DistanceUnits = MIN_SENSOR_ABS_ERR;
+const GPS_VEL_REL_ERR: DistanceUnits = 0.5;
+
 
 const DIFF_PRESS_REL_ERR: PressureUnits = 1E-3;
 const DIFF_PRESS_ABS_ERR: PressureUnits = MIN_SENSOR_ABS_ERR;
@@ -43,12 +46,12 @@ const DIFF_PRESS_ABS_ERR: PressureUnits = MIN_SENSOR_ABS_ERR;
 const AIR_PRESS_REL_ERR: PressureUnits = 1E-3;
 
 
-
-
-
 pub trait SensorLike {
     fn new() -> Self;
+    /// pull updated data from input state
     fn update(&mut self, state: &VirtualVehicleState) -> &mut Self ;
+    /// generate a new set of simulated measurements
+    fn remeasure(&mut self);
 }
 
 
@@ -86,9 +89,7 @@ impl <T:NumCast> Sensor3d<T> {
         self.raw_val
     }
 
-
 }
-
 
 
 pub struct GyroSensor {
@@ -113,9 +114,14 @@ impl SensorLike for GyroSensor {
         self.senso.inner[0].set_center_value(state.kinematic.body_angular_velocity[0]);
         self.senso.inner[1].set_center_value(state.kinematic.body_angular_velocity[1]);
         self.senso.inner[2].set_center_value(state.kinematic.body_angular_velocity[2]);
-        self.senso.set_val_from_inner();
+        self.remeasure();
         self
     }
+
+    fn remeasure(&mut self) {
+        self.senso.set_val_from_inner();
+    }
+
 }
 
 
@@ -141,8 +147,12 @@ impl SensorLike for AccelSensor {
         self.senso.inner[0].set_center_value(state.kinematic.inertial_accel[0]);
         self.senso.inner[1].set_center_value(state.kinematic.inertial_accel[1]);
         self.senso.inner[2].set_center_value(state.kinematic.inertial_accel[2]);
-        self.senso.set_val_from_inner();
+        self.remeasure();
         self
+    }
+
+    fn remeasure(&mut self) {
+        self.senso.set_val_from_inner();
     }
 }
 
@@ -168,23 +178,42 @@ impl SensorLike for MagSensor {
         self.senso.inner[0].set_center_value(state.base_mag_field[0]);
         self.senso.inner[1].set_center_value(state.base_mag_field[1]);
         self.senso.inner[2].set_center_value(state.base_mag_field[2]);
-        self.senso.set_val_from_inner();
+        self.remeasure();
         self
     }
+
+    fn remeasure(&mut self) {
+        self.senso.set_val_from_inner();
+    }
 }
+
+
+/// velocity: N, E, D, total
+pub type GlobalNEDVelocity = [SpeedUnits; 4];
 
 pub struct GlobalPositionSensor {
     lat: Sensulator,
     lon: Sensulator,
     alt: Sensulator,
-    value:GlobalPosition,
+    global_pos_value:GlobalPosition,
+
+    vel_north: Sensulator,
+    vel_east: Sensulator,
+    vel_down: Sensulator,
+    velocity_value: GlobalNEDVelocity,
+
 }
 
 impl GlobalPositionSensor {
-    pub fn get_val(&self) -> GlobalPosition {
-        self.value
+    pub fn get_global_pos(&self) -> GlobalPosition {
+        self.global_pos_value
+    }
+
+    pub fn get_velocity(&self) -> GlobalNEDVelocity {
+        self.velocity_value
     }
 }
+
 impl SensorLike for GlobalPositionSensor {
 
     fn new() -> Self {
@@ -192,11 +221,18 @@ impl SensorLike for GlobalPositionSensor {
             lat: Sensulator::new(0.0, GPS_DEGREES_ABS_ERR as MeasureVal, GPS_DEGREES_REL_ERR as MeasureVal),
             lon: Sensulator::new(0.0, GPS_DEGREES_ABS_ERR as MeasureVal, GPS_DEGREES_REL_ERR as MeasureVal),
             alt: Sensulator::new(0.0, ALT_ABS_ERR, ALT_REL_ERR),
-            value: GlobalPosition {
+
+            vel_north: Sensulator::new(0.0, GPS_VEL_ABS_ERR, GPS_VEL_REL_ERR),
+            vel_east: Sensulator::new(0.0, GPS_VEL_ABS_ERR, GPS_VEL_REL_ERR),
+            vel_down: Sensulator::new(0.0, GPS_VEL_ABS_ERR, GPS_VEL_REL_ERR),
+
+            global_pos_value: GlobalPosition {
                 lat: 0.0,
                 lon: 0.0,
                 alt_wgs84: 0.0
-            }
+            },
+
+            velocity_value: [0.0; 4],
         }
     }
 
@@ -204,24 +240,51 @@ impl SensorLike for GlobalPositionSensor {
         self.lat.set_center_value(state.global_position.lat as MeasureVal);
         self.lon.set_center_value(state.global_position.lon as MeasureVal);
         self.alt.set_center_value(state.global_position.alt_wgs84);
-        self.value = GlobalPosition {
+
+        self.vel_north.set_center_value(state.kinematic.inertial_velocity[0]);
+        self.vel_east.set_center_value(state.kinematic.inertial_velocity[1]);
+        self.vel_down.set_center_value(state.kinematic.inertial_velocity[2]);
+
+        self.remeasure();
+        self
+    }
+
+    fn remeasure(&mut self) {
+        self.global_pos_value = GlobalPosition {
             lat: self.lat.measure() as LatLonUnits,
             lon: self.lon.measure() as LatLonUnits,
             alt_wgs84: self.alt.measure() as DistanceUnits
         };
-        self
+
+        let v_north = self.vel_north.measure();
+        let v_east = self.vel_east.measure();
+        let v_down = self.vel_down.measure();
+        let v_total = (v_north.exp2() + v_east.exp2() + v_down.exp2()).sqrt();
+
+        //TODO better gate for sending gps velocity?
+        if v_total > 3.0 {
+            self.velocity_value = [
+                v_north,
+                v_east,
+                v_down,
+                v_total
+            ];
+        }
+        else {
+            self.velocity_value = [0.0; 4];
+        }
     }
 
 }
 
 pub struct AirspeedSensor {
-    diff_press: Sensulator,
+    senso: Sensulator,
 }
 
 impl SensorLike for AirspeedSensor {
     fn new() -> Self {
         AirspeedSensor {
-            diff_press: Sensulator::new(0.0, DIFF_PRESS_ABS_ERR, DIFF_PRESS_REL_ERR ),
+            senso: Sensulator::new(0.0, DIFF_PRESS_ABS_ERR, DIFF_PRESS_REL_ERR ),
         }
     }
 
@@ -234,15 +297,20 @@ impl SensorLike for AirspeedSensor {
         // vel^2 = (2/rho) * DP
         //  DP = (rho / 2) * vel^2
         let dp = (state.relative_airspeed * state.relative_airspeed) * (air_density_rho / 2.0);
-        self.diff_press.set_center_value(dp);
-        self.diff_press.measure();
+        self.senso.set_center_value(dp);
+        self.remeasure();
         self
     }
+
+    fn remeasure(&mut self) {
+        self.senso.measure();
+    }
+
 }
 
 impl  AirspeedSensor {
     pub fn get_val(&self) -> PressureUnits {
-        self.diff_press.peek()
+        self.senso.peek()
     }
 }
 
@@ -253,27 +321,31 @@ impl  AirspeedSensor {
 /// Normally corresponds to altitude, temperature, and humidity.
 ///
 pub struct AirPressureSensor {
-    pressure: Sensulator,
+    senso: Sensulator,
 }
 
 impl SensorLike for AirPressureSensor {
     fn new() -> Self {
         AirPressureSensor {
-            pressure: Sensulator::new(0.0, 0.0, AIR_PRESS_REL_ERR),
+            senso: Sensulator::new(0.0, 0.0, AIR_PRESS_REL_ERR),
         }
     }
 
     fn update(&mut self, state: &VirtualVehicleState) -> &mut Self {
         //println!("airpress: {}", state.local_air_pressure);
-        self.pressure.set_center_value(state.local_air_pressure);
-        self.pressure.measure();
+        self.senso.set_center_value(state.local_air_pressure);
+        self.remeasure();
         self
+    }
+
+    fn remeasure(&mut self) {
+        self.senso.measure();
     }
 
 }
 
 impl AirPressureSensor {
     pub fn get_val(&self) -> PressureUnits {
-        self.pressure.peek()
+        self.senso.peek()
     }
 }

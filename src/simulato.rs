@@ -66,6 +66,8 @@ impl Simulato {
         //TODO allow simulated time to decouple from real time
         let new_real_time = self.elapsed();
         self.set_simulated_time(Self::micros_from_duration(&new_real_time));
+        // with the passage of virtual time, all sensors should remeasure
+        self.sensed.remeasure_all();
     }
 
     /// Heart of the update loop:
@@ -73,20 +75,28 @@ impl Simulato {
     ///  - Use the model to update the idealized virtual state of the vehicle.
     ///  - Then update the vehicle's sensed state.
     ///
-    pub fn update(&mut self, time: TimeBaseUnits, actuators: &ActuatorControls) {
-        let dt: TimeIntervalUnits = time_base_delta_to_interval(time - self.vehicle_state.base_time);
-        self.vehicle_state.base_time = time;
+    pub fn update(&mut self, actuator_time: TimeBaseUnits, actuators: &ActuatorControls) {
+        let dt: TimeIntervalUnits;
+        if actuator_time > self.vehicle_state.base_time {
+            dt = time_base_delta_to_interval(actuator_time - self.vehicle_state.base_time);
+        }
+        else {
+            dt = time_base_delta_to_interval(self.vehicle_state.base_time - actuator_time);
+            println!("dt inverted");
+        }
+
+        //self.vehicle_state.base_time = actuator_time;
         //println!("time {} dt {:.*} act: {:?}", time, 5, dt, actuators);
 
         (self.vehicle_model)(actuators, dt, &self.vehicle_state.local_env,  &mut self.vehicle_state.kinematic);
 
+        //update the global position from the local (inertial) position update
         let new_global_pos =
             self.vehicle_state.planet.position_at_distance(
                 &self.vehicle_state.kinematic.inertial_position);
 
         self.vehicle_state.set_global_position(&new_global_pos, false);
         self.sensed.update_from_virtual(&self.vehicle_state);
-
     }
 
     pub fn get_ref_position(&self) -> GlobalPosition {
@@ -144,6 +154,8 @@ mod tests {
             let actuators: ActuatorControls = [rand_act_level; 16];
 
             simulato.update(next_time, &actuators);
+            simulato.increment_simulated_time();
+
             assert_eq!(true, check_basic_motion(&simulato.vehicle_state));
         }
     }

@@ -191,6 +191,15 @@ impl PhysicalSensors {
         }
     }
 
+    pub fn remeasure_all(&mut self) {
+        self.gps.remeasure();
+        self.gyro.remeasure();
+        self.accel.remeasure();
+        self.mag.remeasure();
+        self.airspeed.remeasure();
+        self.baro.remeasure();
+    }
+
     pub fn update_from_virtual(&mut self, virt: &VirtualVehicleState) {
         self.gps.update(virt);
         self.gyro.update(virt);
