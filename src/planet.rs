@@ -115,11 +115,12 @@ impl Planetary for PlanetEarth {
 
     fn local_environment(&self) -> ExternalForceEnvironment {
         //TODO base local_environment on current position
+        let local_floor = -self.ref_position.alt_wgs84;
         ExternalForceEnvironment {
             gravity: Vector3::new(0.0, 0.0, Self::STD_GRAVITY_ACCEL),
             wind: Vector3::zeros(),
             constraint: GeoConstraintBox {
-                minimum: Vector3::new(-1000.0, -1000.0, Self::MIN_SIM_ALTITUDE),
+                minimum: Vector3::new(-1000.0, -1000.0, local_floor),
                 maximum: Vector3::new(1000.0, 1000.0, Self::MAX_SIM_ALTITUDE)
             }
         }

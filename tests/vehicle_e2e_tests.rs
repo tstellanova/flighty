@@ -19,15 +19,14 @@ pub fn test_vehicle_takeoff() {
 
     let mut sim = Simulato::new(&get_test_reference_position());
 
-    const EXPECTED_Z_ACCEL: AccelUnits = -33.342613; //TODO derive from vehicle weight
+    const EXPECTED_Z_ACCEL: AccelUnits = -30.400618; //TODO derive from vehicle mass and rotor thrust
 
     for _i in 0..100 {
         //max takeoff thrust
         let actuators: ActuatorControls = [1.0; 16];
 
         sim.increment_simulated_time();
-        let time = sim.get_simulated_time();
-        sim.update(time, &actuators);
+        sim.update(&actuators);
 
         let z_accel = sim.vehicle_state.kinematic.inertial_accel[2];
         println!("z_accel exp {} act {}",EXPECTED_Z_ACCEL, z_accel);

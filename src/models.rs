@@ -33,8 +33,8 @@ impl ForcesAndTorques {
 }
 
 
-
-const VEHICLE_MASS_VTOL_HYBRID: MassUnits = 1.0;
+///mass of the simulated vehicle
+const VEHICLE_MASS_VTOL_HYBRID: MassUnits = 0.8;
 //const VEHICLE_MOMENT_INERTIA:Matrix3<MomentInertiaUnits> = Matrix3::new(
 //    0.005,  0.0,    0.0,
 //    0.0,    0.005,  0.0,
@@ -42,7 +42,7 @@ const VEHICLE_MASS_VTOL_HYBRID: MassUnits = 1.0;
 //);
 
 /// rotors are commonly rated in weight-equivalent thrust, eg "grams"
-const MAX_ROTOR_THRUST_WEIGHT_EQUIV_VTOL_HYBRID: MassUnits = 1.1;
+const MAX_ROTOR_THRUST_WEIGHT_EQUIV_VTOL_HYBRID: MassUnits = 0.82;
 /// convert weight-equivalent to thrust force: F = m * g
 const MAX_ROTOR_THRUST_VTOL_HYBRID: ForceUnits = MAX_ROTOR_THRUST_WEIGHT_EQUIV_VTOL_HYBRID * PlanetEarth::STD_GRAVITY_ACCEL ;
 /// the number of lift rotors this model has
@@ -58,7 +58,24 @@ pub fn vtol_hybrid_model_fn (
     enviro: &ExternalForceEnvironment,
     motion: &mut RigidBodyState)
 {
+    let pinterval = if interval < 0.001 {0.001} else {interval};
+
     enforce_constraints(&enviro.constraint, motion);
+
+    //update current position and velocity based on prior step state
+    for i in 0..3 {
+        if !motion.translation_constrained[i] {
+            motion.inertial_position[i] += motion.inertial_velocity[i] * pinterval;
+            motion.inertial_velocity[i] += motion.inertial_accel[i] * pinterval;
+        }
+    }
+
+//		imu_sample_new.delta_vel = Vector3f{sensors.accelerometer_m_s2} * imu_sample_new.delta_vel_dt;
+    if motion.inertial_accel[2] < 0.0 {
+        let delta_vz = motion.inertial_accel[2] * interval;
+        println!("a_z {:0.4} del_vz: {:0.4}", motion.inertial_accel[2], delta_vz);
+    }
+
 
     // collect internal (actuator) forces
     let int_fortorks = internal_forces_and_torques_vtol_hybrid(&actuators);
@@ -67,19 +84,12 @@ pub fn vtol_hybrid_model_fn (
     // sum all forces
     let sum_fortorks = ForcesAndTorques::sum(&int_fortorks, &ext_fortorks);
 
+    //prepare the acceleration for next iteration
     for i in 0..3 {
         motion.inertial_accel[i] = sum_fortorks.forces[i] / VEHICLE_MASS_VTOL_HYBRID;
-
-        if !motion.translation_constrained[i] {
-            motion.inertial_velocity[i] += motion.inertial_accel[i] * interval;
-            motion.inertial_position[i] += motion.inertial_velocity[i] * interval;
-        }
+        //TODO handle torque
     }
 
-    //recheck constraints after applying acceleration
-    enforce_constraints(&enviro.constraint, motion);
-
-    //TODO handle torque
 
 //    println!("interval: {} accel: {} vel: {} pos: {}", interval,
 //             motion.inertial_accel, motion.inertial_velocity, motion.inertial_position);
@@ -143,6 +153,10 @@ fn enforce_constraints(constraint: &GeoConstraintBox, motion: &mut RigidBodyStat
         motion.inertial_velocity[2] = 0.0; //constrained: cannot move
         motion.inertial_position[2] = constraint.minimum[2];
     }
+    else {
+        //unconstrain Z
+        motion.translation_constrained[2] = false;
+    }
 }
 
 
@@ -179,26 +193,27 @@ use assert_approx_eq::assert_approx_eq;
 
         // check 15 seconds worth of travel
         let num_steps = (15.0 / step_interval) as u32;
-        for _i in 0..num_steps {
+        for i in 0..num_steps {
             //actuators are set to less than that needed to stay aloft
             let actuators: ActuatorControls = [SLOW_DESCENT_ACTUATOR; 16];
             vtol_hybrid_model_fn(&actuators, step_interval, &enviro, &mut motion);
             let cur_alt = motion.inertial_position[2];
 
-            if cur_alt != enviro.constraint.minimum[2] {
-                assert_approx_eq!(motion.inertial_accel[2], 0.043149948);
-                //check that we are always descending
-                let alt_check = cur_alt > last_alt;//NED descending altitude
-                if !alt_check {
-                    println!("cur_alt: {} last_alt: {}", cur_alt, last_alt);
+            if i > 1 {
+                if cur_alt != enviro.constraint.minimum[2] {
+                    assert_approx_eq!(motion.inertial_accel[2], 0.04020691); //TODO derive from vehicle mass and rotor thrust
+                    //check that we are always descending
+                    let alt_check = cur_alt > last_alt;//NED descending altitude
+                    if !alt_check {
+                        println!("cur_alt: {} last_alt: {}", cur_alt, last_alt);
+                    }
+                    assert_eq!(true, alt_check);
+                } else {
+                    //verify grounded
+                    assert_approx_eq!(motion.inertial_accel[2], 0.0);
                 }
-                last_alt = cur_alt;
-                assert_eq!( true, alt_check );
             }
-            else {
-                assert_approx_eq!(motion.inertial_accel[2], 0.0);
-            }
-
+            last_alt = cur_alt;
         }
     }
 
@@ -212,23 +227,26 @@ use assert_approx_eq::assert_approx_eq;
 
         // check 15 seconds worth of travel
         let num_steps = (15.0 / step_interval) as u32;
-        for _i in 0..num_steps {
+        for i in 0..num_steps {
             //actuator output is more than sufficient to takeoff
             let actuators: ActuatorControls = [0.40; 16];
-            println!("last_alt : {}", last_alt);
             vtol_hybrid_model_fn(&actuators, step_interval, &enviro, &mut motion);
-            assert_approx_eq!( motion.inertial_accel[2], -7.4530544);
+            //println!("accel : {}", motion.inertial_accel[2]);
+            assert_approx_eq!( motion.inertial_accel[2], -6.2762566); //TODO derive from vehicle mass and rotor thrust
 
             let cur_alt = motion.inertial_position[2];
-            //check that we are always rising
-            let alt_check = cur_alt < last_alt; //NED ascending altitude
-            if !alt_check {
-                println!("cur_alt: {} last_alt: {}", cur_alt, last_alt);
+            if i > 1 {
+                let cur_vel = motion.inertial_velocity[2];
+                //check that we are always rising
+                let alt_check = cur_alt < last_alt; //NED ascending altitude
+                if !alt_check {
+                    println!("{} cur_vel: {:.2} cur_alt: {:.2} last_alt: {:.2}", i, cur_vel, cur_alt, last_alt);
+                }
+                assert_eq!(true, alt_check);
             }
-
             last_alt = cur_alt;
-            assert_eq!( true, alt_check );
         }
+
     }
 
     #[test]
@@ -242,19 +260,22 @@ use assert_approx_eq::assert_approx_eq;
 
         // check 5 seconds worth of travel
         let num_steps = (5.0 / step_interval) as u32;
-        for _i in 0..num_steps {
+        for i in 0..num_steps {
             let actuators: ActuatorControls = [0.0; 16];
             vtol_hybrid_model_fn(&actuators, step_interval, &enviro, &mut motion);
             assert_approx_eq!(motion.inertial_accel[2], enviro.gravity[2]);
 
             let cur_alt = motion.inertial_position[2];
             //check that we are always descending
-            let alt_check = cur_alt > last_alt;//NED descending altitude
-            if !alt_check {
-                println!("cur_alt: {} last_alt: {}", cur_alt, last_alt);
+            if i > 1 {
+                let alt_check = cur_alt > last_alt;//NED descending altitude
+                if !alt_check {
+                    println!("cur_alt: {} last_alt: {}", cur_alt, last_alt);
+                }
+                assert_eq!(true, alt_check);
             }
+
             last_alt = cur_alt;
-            assert_eq!( true, alt_check );
         }
     }
 
@@ -268,7 +289,6 @@ use assert_approx_eq::assert_approx_eq;
         const WEIGHT_BALANCE_POINT:f32 =
             (VEHICLE_MASS_VTOL_HYBRID/ MAX_ROTOR_THRUST_WEIGHT_EQUIV_VTOL_HYBRID)
                 / (NUM_LIFT_ROTORS_VTOL_HYBRID as f32);
-        //
 
         // increase rotor actuator output until the vehicle accelerates off the ground
         loop {

@@ -11,7 +11,7 @@ use crate::VirtualVehicleState;
 use crate::physical_types::*;
 use std::marker::PhantomData;
 use sensulator::MeasureVal;
-
+use nalgebra::Vector3;
 
 const MIN_SENSOR_REL_ERR:f32  = 1E-5;
 const MIN_SENSOR_ABS_ERR:f32 = 1E-6;
@@ -31,19 +31,29 @@ const GPS_DEGREES_ABS_ERR: LatLonUnits = MIN_SENSOR_ABS_ERR as LatLonUnits;
 
 
 // this range appears to allow EKF fusion to begin
-const ALT_ABS_ERR: DistanceUnits = MIN_SENSOR_ABS_ERR;
 const ALT_REL_ERR: DistanceUnits = 1.5;
+const ALT_ABS_ERR: DistanceUnits = MIN_SENSOR_ABS_ERR;
 
 
-// GPS velocity errors
-const GPS_VEL_ABS_ERR: DistanceUnits = MIN_SENSOR_ABS_ERR;
-const GPS_VEL_REL_ERR: DistanceUnits = 0.5;
+// GPS horizontal velocity errors
+const GPS_HVEL_REL_ERR: SpeedUnits = 0.03; //TODO verify -- based on req_hdrift
+const GPS_HVEL_ABS_ERR: SpeedUnits = MIN_SENSOR_ABS_ERR;
 
 
+
+// GPS vertical velocity errors
+const GPS_VVEL_REL_ERR: SpeedUnits = 0.05; //TODO verify -- based on req_vdrift
+const GPS_VVEL_ABS_ERR: SpeedUnits = MIN_SENSOR_ABS_ERR;
+
+
+// differential pressure errors (used for eg Pitot airspeed)
 const DIFF_PRESS_REL_ERR: PressureUnits = 1E-3;
 const DIFF_PRESS_ABS_ERR: PressureUnits = MIN_SENSOR_ABS_ERR;
 
+// barometer air pressure errors
+
 const AIR_PRESS_REL_ERR: PressureUnits = 1E-3;
+const AIR_PRESS_ABS_ERR: PressureUnits = MIN_SENSOR_ABS_ERR;
 
 
 pub trait SensorLike {
@@ -188,7 +198,7 @@ impl SensorLike for MagSensor {
 }
 
 
-/// velocity: N, E, D, total
+/// velocity: N, E, D, ground speed
 pub type GlobalNEDVelocity = [SpeedUnits; 4];
 
 pub struct GlobalPositionSensor {
@@ -202,7 +212,11 @@ pub struct GlobalPositionSensor {
     vel_down: Sensulator,
     velocity_value: GlobalNEDVelocity,
 
+    delayed_velocity: Vector3<SpeedUnits>,
 }
+
+
+
 
 impl GlobalPositionSensor {
     pub fn get_global_pos(&self) -> GlobalPosition {
@@ -212,6 +226,13 @@ impl GlobalPositionSensor {
     pub fn get_velocity(&self) -> GlobalNEDVelocity {
         self.velocity_value
     }
+
+//    fn get_gps_vel_exp_weighted_moving_avg(new_val: SpeedUnits, ema: SpeedUnits) -> SpeedUnits {
+//        const GPS_DELAY_WINDOW:SpeedUnits = 1.0;
+//        const GPS_DELAY_ALPHA:SpeedUnits = 2.0 / (GPS_DELAY_WINDOW + 1.0); //TODO update rate dependent
+//        const ONE_MINUS_GPS_DELAY_ALPHA:SpeedUnits = 1.0 - GPS_DELAY_ALPHA;
+//        (GPS_DELAY_ALPHA * new_val) + (ONE_MINUS_GPS_DELAY_ALPHA*ema)
+//    }
 }
 
 impl SensorLike for GlobalPositionSensor {
@@ -222,28 +243,45 @@ impl SensorLike for GlobalPositionSensor {
             lon: Sensulator::new(0.0, GPS_DEGREES_ABS_ERR as MeasureVal, GPS_DEGREES_REL_ERR as MeasureVal),
             alt: Sensulator::new(0.0, ALT_ABS_ERR, ALT_REL_ERR),
 
-            vel_north: Sensulator::new(0.0, GPS_VEL_ABS_ERR, GPS_VEL_REL_ERR),
-            vel_east: Sensulator::new(0.0, GPS_VEL_ABS_ERR, GPS_VEL_REL_ERR),
-            vel_down: Sensulator::new(0.0, GPS_VEL_ABS_ERR, GPS_VEL_REL_ERR),
+            vel_north: Sensulator::new(0.0, GPS_HVEL_ABS_ERR, GPS_HVEL_REL_ERR),
+            vel_east: Sensulator::new(0.0, GPS_HVEL_ABS_ERR, GPS_HVEL_REL_ERR),
+            vel_down: Sensulator::new(0.0, GPS_VVEL_ABS_ERR, GPS_VVEL_REL_ERR),
 
-            global_pos_value: GlobalPosition {
-                lat: 0.0,
-                lon: 0.0,
-                alt_wgs84: 0.0
-            },
+            global_pos_value: GlobalPosition { lat: 0.0, lon: 0.0, alt_wgs84: 0.0 },
 
             velocity_value: [0.0; 4],
+            delayed_velocity: Vector3::zeros(),
         }
     }
+
+
+
+
+//    n=1;
+//    curAvg = 0;
+//    loop{
+//    curAvg = curAvg + (newNum - curAvg)/n;
+//    n++;
+//    }
+
+
 
     fn update(&mut self, state: &VirtualVehicleState) -> &mut Self {
         self.lat.set_center_value(state.global_position.lat as MeasureVal);
         self.lon.set_center_value(state.global_position.lon as MeasureVal);
         self.alt.set_center_value(state.global_position.alt_wgs84);
 
-        self.vel_north.set_center_value(state.kinematic.inertial_velocity[0]);
-        self.vel_east.set_center_value(state.kinematic.inertial_velocity[1]);
-        self.vel_down.set_center_value(state.kinematic.inertial_velocity[2]);
+        //TODO  GPS velocity should be delayed
+        self.delayed_velocity = state.kinematic.inertial_velocity;
+
+//        for i in 0..3 {
+//            self.delayed_velocity[i] = Self::get_gps_vel_exp_weighted_moving_avg(
+//                state.kinematic.inertial_velocity[i], self.delayed_velocity[i]);
+//        }
+
+        self.vel_north.set_center_value(self.delayed_velocity[0]);
+        self.vel_east.set_center_value(self.delayed_velocity[1]);
+        self.vel_down.set_center_value(self.delayed_velocity[2]);
 
         self.remeasure();
         self
@@ -259,20 +297,14 @@ impl SensorLike for GlobalPositionSensor {
         let v_north = self.vel_north.measure();
         let v_east = self.vel_east.measure();
         let v_down = self.vel_down.measure();
-        let v_total = (v_north.exp2() + v_east.exp2() + v_down.exp2()).sqrt();
+        let v_ground =  (v_north.exp2() + v_east.exp2()).sqrt();
 
-        //TODO better gate for sending gps velocity?
-        if v_total > 3.0 {
-            self.velocity_value = [
-                v_north,
-                v_east,
-                v_down,
-                v_total
-            ];
-        }
-        else {
-            self.velocity_value = [0.0; 4];
-        }
+        self.velocity_value = [
+            v_north,
+            v_east,
+            v_down,
+            v_ground
+        ];
     }
 
 }
@@ -305,7 +337,6 @@ impl SensorLike for AirspeedSensor {
     fn remeasure(&mut self) {
         self.senso.measure();
     }
-
 }
 
 impl  AirspeedSensor {
@@ -313,7 +344,6 @@ impl  AirspeedSensor {
         self.senso.peek()
     }
 }
-
 
 
 ///
@@ -327,7 +357,7 @@ pub struct AirPressureSensor {
 impl SensorLike for AirPressureSensor {
     fn new() -> Self {
         AirPressureSensor {
-            senso: Sensulator::new(0.0, 0.0, AIR_PRESS_REL_ERR),
+            senso: Sensulator::new(0.0, AIR_PRESS_ABS_ERR, AIR_PRESS_REL_ERR),
         }
     }
 
