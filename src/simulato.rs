@@ -78,15 +78,12 @@ impl Simulato {
     ///  - Then update the vehicle's sensed state.
     ///
     pub fn update(&mut self, actuators: &ActuatorControls) {
-        let mut dt: TimeBaseUnits;
+        let dt: TimeBaseUnits;
         if 0 == self.last_update_time {
             dt = 250; //fake very brief interval
         }
         else {
             dt = self.simulated_time - self.last_update_time;
-            if (dt > 1000) { //TODO check this cap of dt
-                dt = 1000;
-            }
         }
 
         let interval: TimeIntervalUnits = time_base_delta_to_interval(dt);

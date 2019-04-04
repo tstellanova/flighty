@@ -58,24 +58,7 @@ pub fn vtol_hybrid_model_fn (
     enviro: &ExternalForceEnvironment,
     motion: &mut RigidBodyState)
 {
-    let pinterval = if interval < 0.001 {0.001} else {interval};
-
     enforce_constraints(&enviro.constraint, motion);
-
-    //update current position and velocity based on prior step state
-    for i in 0..3 {
-        if !motion.translation_constrained[i] {
-            motion.inertial_position[i] += motion.inertial_velocity[i] * pinterval;
-            motion.inertial_velocity[i] += motion.inertial_accel[i] * pinterval;
-        }
-    }
-
-//		imu_sample_new.delta_vel = Vector3f{sensors.accelerometer_m_s2} * imu_sample_new.delta_vel_dt;
-    if motion.inertial_accel[2] < 0.0 {
-        let delta_vz = motion.inertial_accel[2] * interval;
-        println!("a_z {:0.4} del_vz: {:0.4}", motion.inertial_accel[2], delta_vz);
-    }
-
 
     // collect internal (actuator) forces
     let int_fortorks = internal_forces_and_torques_vtol_hybrid(&actuators);
@@ -84,10 +67,34 @@ pub fn vtol_hybrid_model_fn (
     // sum all forces
     let sum_fortorks = ForcesAndTorques::sum(&int_fortorks, &ext_fortorks);
 
-    //prepare the acceleration for next iteration
+    let prev_accel = motion.inertial_accel;
+
+    //update current position and velocity based on prior step state
     for i in 0..3 {
         motion.inertial_accel[i] = sum_fortorks.forces[i] / VEHICLE_MASS_VTOL_HYBRID;
+
+        if !motion.translation_constrained[i] {
+            //use trapezoid rule to find new velocity and position from latest accel
+            let dvel = interval * ((prev_accel[i] + motion.inertial_accel[i])/ 2.0);
+
+            //just use prev accel to find current velocity
+            //let dvel = interval * prev_accel[i];
+            let prev_vel = motion.inertial_velocity[i];
+            motion.inertial_velocity[i] += dvel;
+
+            //use trapezoid rule to find new position from latest vel and prev_vel
+            let dpos = interval * ((prev_vel + motion.inertial_velocity[i])/2.0);
+            motion.inertial_position[i] += dpos;
+
+            if  (2 == i) && (crate::planet::PlanetEarth::STD_GRAVITY_ACCEL != motion.inertial_accel[2]) {
+                println!("pos: {:0.6} a_z {:0.4} vel: {:0.3}",
+                         motion.inertial_position[2],
+                         motion.inertial_accel[2],
+                         motion.inertial_velocity[2]);
+            }
+        }
         //TODO handle torque
+
     }
 
 
