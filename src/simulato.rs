@@ -80,7 +80,7 @@ impl Simulato {
     pub fn update(&mut self, actuators: &ActuatorControls) {
         let dt: TimeBaseUnits;
         if 0 == self.last_update_time {
-            dt = 250; //fake very brief interval
+            dt = 2000; //fake interval
         }
         else {
             dt = self.simulated_time - self.last_update_time;

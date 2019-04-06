@@ -16,7 +16,7 @@ use nalgebra::Vector3;
 const MIN_SENSOR_REL_ERR:f32  = 1E-5;
 const MIN_SENSOR_ABS_ERR:f32 = 1E-6;
 
-const GYRO_REL_ERR: GyroUnits = 0.0000266;
+const GYRO_REL_ERR: GyroUnits = 2.5E-6; //0.0000266;
 const GYRO_ABS_ERR: GyroUnits = MIN_SENSOR_ABS_ERR;
 
 const ACCEL_REL_ERR: AccelUnits = 0.0000267;
@@ -26,8 +26,8 @@ const MAG_REL_ERR: MagUnits = 0.0000265;
 const MAG_ABS_ERR: MagUnits = MIN_SENSOR_ABS_ERR;
 
 
-const GPS_DEGREES_REL_ERR: LatLonUnits =  MIN_SENSOR_REL_ERR as LatLonUnits;
-const GPS_DEGREES_ABS_ERR: LatLonUnits = MIN_SENSOR_ABS_ERR as LatLonUnits;
+const GPS_DEGREES_REL_ERR: LatLonUnits =  1E-6 as LatLonUnits;
+const GPS_DEGREES_ABS_ERR: LatLonUnits = 1E-7 as LatLonUnits;
 
 
 // this range appears to allow EKF fusion to begin
