@@ -254,18 +254,6 @@ impl SensorLike for GlobalPositionSensor {
         }
     }
 
-
-
-
-//    n=1;
-//    curAvg = 0;
-//    loop{
-//    curAvg = curAvg + (newNum - curAvg)/n;
-//    n++;
-//    }
-
-
-
     fn update(&mut self, state: &VirtualVehicleState) -> &mut Self {
         self.lat.set_center_value(state.global_position.lat as MeasureVal);
         self.lon.set_center_value(state.global_position.lon as MeasureVal);
