@@ -13,16 +13,15 @@ use std::marker::PhantomData;
 use sensulator::MeasureVal;
 use nalgebra::Vector3;
 
-const MIN_SENSOR_REL_ERR:f32  = 1E-5;
 const MIN_SENSOR_ABS_ERR:f32 = 1E-6;
 
-const GYRO_REL_ERR: GyroUnits = 2.5E-6; //0.0000266;
+const GYRO_REL_ERR: GyroUnits = 2.66E-6;
 const GYRO_ABS_ERR: GyroUnits = MIN_SENSOR_ABS_ERR;
 
-const ACCEL_REL_ERR: AccelUnits = 0.0000267;
+const ACCEL_REL_ERR: AccelUnits = 2.67E-5;
 const ACCEL_ABS_ERR : AccelUnits = MIN_SENSOR_ABS_ERR;
 
-const MAG_REL_ERR: MagUnits = 0.0000265;
+const MAG_REL_ERR: MagUnits = 2.65E-5;
 const MAG_ABS_ERR: MagUnits = MIN_SENSOR_ABS_ERR;
 
 

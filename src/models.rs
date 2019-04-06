@@ -53,6 +53,7 @@ pub const MIN_TAKEOFF_ROTOR_FRAC_VTOL_HYBRID:f32 =
     (VEHICLE_MASS_VTOL_HYBRID/ MAX_ROTOR_THRUST_WEIGHT_EQUIV_VTOL_HYBRID) /
         (NUM_LIFT_ROTORS_VTOL_HYBRID as f32);
 
+/// The maximum acceleration achievable by rotors (excludes drag and gravity)
 pub const MAX_ROTOR_ACCEL_VTOL_HYBRID: f32 =
     (NUM_LIFT_ROTORS_VTOL_HYBRID as f32 * MAX_ROTOR_THRUST_VTOL_HYBRID)/
         VEHICLE_MASS_VTOL_HYBRID ;
@@ -133,7 +134,7 @@ fn internal_forces_and_torques_vtol_hybrid(actuators: &ActuatorControls) -> Forc
     );
 
     //TODO properly transform axial_force
-    let axial_force = Vector3::new(0.0, 0.0, body_z_force);
+    let axial_force = Vector3::new(0.0, 0.0, -body_z_force);
 
     ForcesAndTorques {
         forces: axial_force,
@@ -157,6 +158,7 @@ fn external_forces_and_torques_vtol_hybrid(_kinematic: &RigidBodyState,
 }
 
 
+
 ///
 /// Check whether the constraints prevent the body from moving in a particular dimension
 ///
@@ -166,10 +168,11 @@ fn enforce_constraints(constraint: &GeoConstraintBox, motion: &mut RigidBodyStat
     let z_vel = motion.inertial_velocity[2];
 
     // if vehicle is on the floor and has downward Z momentum, need to be grounded
-    if (z_pos <= constraint.minimum[2]) && (z_vel < 0.0) {
+    if (z_pos >= constraint.minimum[2]) && (z_vel > 0.0) {
         motion.translation_constrained[2] = true;
         motion.inertial_velocity[2] = 0.0; //constrained: cannot move
         motion.inertial_position[2] = constraint.minimum[2];
+        println!("Z-constrainted! ");
     }
     else {
         //unconstrain Z
@@ -196,34 +199,50 @@ use super::*;
 use crate::planet::{Planetary, PlanetEarth};
 use assert_approx_eq::assert_approx_eq;
 
+    const HIGH_ALTITUDE_SAMPLE: DistanceUnits = -500.0; //start at 500m up
+
+    fn expected_accel_from_actuator_frac(frac: f32, enviro: &ExternalForceEnvironment) -> AccelUnits {
+        let expected_accel = -(frac * MAX_ROTOR_ACCEL_VTOL_HYBRID )
+            + enviro.gravity[2];
+        expected_accel
+    }
+
+    fn descending_alt(last_alt: DistanceUnits, cur_alt: DistanceUnits) -> bool {
+        //assume with NED that more negative altitudes are higher
+        cur_alt > last_alt
+    }
+
+    fn ascending_alt(last_alt: DistanceUnits, cur_alt: DistanceUnits) -> bool {
+        //assume with NED that more negative altitudes are higher
+        cur_alt < last_alt
+    }
+
     #[test]
     fn test_vtol_landing_trajectory() {
         let mut motion = RigidBodyState::new();
-        motion.inertial_position[2] = 500.0; //start at 500m up
-        let mut last_alt: DistanceUnits = motion.inertial_position[2];
+        motion.inertial_position[2] = HIGH_ALTITUDE_SAMPLE;
         let enviro = PlanetEarth::default_local_environment();
         let step_interval:TimeIntervalUnits =  time_base_delta_to_interval(100000 as TimeBaseUnits);
 
         const WEIGHT_BALANCE_POINT:f32 = MIN_TAKEOFF_ROTOR_FRAC_VTOL_HYBRID ;
         const SLOW_DESCENT_ACTUATOR:f32 = (WEIGHT_BALANCE_POINT - 0.001);
-        let expected_accel = (SLOW_DESCENT_ACTUATOR * MAX_ROTOR_ACCEL_VTOL_HYBRID )
-            - crate::PlanetEarth::STD_GRAVITY_ACCEL;
+        let expected_accel = expected_accel_from_actuator_frac(SLOW_DESCENT_ACTUATOR, &enviro);
 
+        let mut last_alt: DistanceUnits = motion.inertial_position[2];
         // check 15 seconds worth of travel
         let num_steps = (15.0 / step_interval) as u32;
-        for _i in 0..num_steps {
+        for i in 0..num_steps {
             //actuators are set to less than that needed to stay aloft
             let actuators: ActuatorControls = [SLOW_DESCENT_ACTUATOR; 16];
             vtol_hybrid_model_fn(&actuators, step_interval, &enviro, &mut motion);
             let cur_alt = motion.inertial_position[2];
 
+            println!("{:03} cur_alt: {} last_alt: {}", i, cur_alt, last_alt);
+
             if cur_alt != enviro.constraint.minimum[2] {
                 assert_approx_eq!(motion.inertial_accel[2], expected_accel);
                 //check that we are always descending
-                let alt_check = cur_alt < last_alt;//NED descending altitude
-                if !alt_check {
-                    println!("cur_alt: {} last_alt: {}", cur_alt, last_alt);
-                }
+                let alt_check = descending_alt(last_alt, cur_alt);
                 assert_eq!(true, alt_check);
             } else {
                 //verify grounded
@@ -241,8 +260,7 @@ use assert_approx_eq::assert_approx_eq;
         let step_interval:TimeIntervalUnits =  time_base_delta_to_interval(100000 as TimeBaseUnits);
 
         let actuator_frac = 0.4;
-        let expected_accel = (actuator_frac * MAX_ROTOR_ACCEL_VTOL_HYBRID )
-            - crate::PlanetEarth::STD_GRAVITY_ACCEL;
+        let expected_accel = expected_accel_from_actuator_frac(actuator_frac, &enviro);
 
         let mut last_alt: DistanceUnits = motion.inertial_position[2];
 
@@ -259,7 +277,7 @@ use assert_approx_eq::assert_approx_eq;
                 let cur_accel = motion.inertial_accel[2];
                 let cur_vel = motion.inertial_velocity[2];
                 //check that we are always rising
-                let alt_check = cur_alt > last_alt; //NED ascending altitude
+                let alt_check =  ascending_alt(last_alt, cur_alt);
                 //if !alt_check {
                     println!("{:03} cur_accel: {:0.4} cur_vel: {:.4} cur_alt: {:.4} last_alt: {:.4}",
                              i, cur_accel, cur_vel, cur_alt, last_alt);
@@ -275,28 +293,25 @@ use assert_approx_eq::assert_approx_eq;
     fn test_vtol_freefall_trajectory() {
         //shut off actuators and look for an uncontrolled descent
         let mut motion = RigidBodyState::new();
-        motion.inertial_position[2] = 500.0; //start at 100m up
-        let mut last_alt: DistanceUnits = motion.inertial_position[2];
+        motion.inertial_position[2] = HIGH_ALTITUDE_SAMPLE;
         let enviro = PlanetEarth::default_local_environment();
         let step_interval:TimeIntervalUnits =  time_base_delta_to_interval(1000000 as TimeBaseUnits);
+        let expected_accel = enviro.gravity[2];
 
+        let mut last_alt: DistanceUnits = motion.inertial_position[2];
         // check 5 seconds worth of travel
         let num_steps = (5.0 / step_interval) as u32;
         for i in 0..num_steps {
             let actuators: ActuatorControls = [0.0; 16];
             vtol_hybrid_model_fn(&actuators, step_interval, &enviro, &mut motion);
-            assert_approx_eq!(motion.inertial_accel[2], enviro.gravity[2]);
+            assert_approx_eq!(motion.inertial_accel[2], expected_accel);
 
             let cur_alt = motion.inertial_position[2];
-            //check that we are always descending
-            if i > 1 {
-                let alt_check = cur_alt < last_alt;//NED descending altitude
-                if !alt_check {
-                    println!("{:03} cur_alt: {} last_alt: {}", i, cur_alt, last_alt);
-                }
-                assert_eq!(true, alt_check);
-            }
+            println!("{:03} cur_alt: {} last_alt: {}", i, cur_alt, last_alt);
 
+            //check that we are always descending
+            let alt_check = descending_alt(last_alt, cur_alt);
+            assert_eq!(true, alt_check);
             last_alt = cur_alt;
         }
     }
@@ -315,7 +330,7 @@ use assert_approx_eq::assert_approx_eq;
             let actuators: ActuatorControls = [cur_actuator; 16];
             vtol_hybrid_model_fn(&actuators, step_interval, &enviro, &mut motion);
             let z_accel = motion.inertial_accel[2];
-            if z_accel > 0.0 { //rising off the ground
+            if z_accel < 0.0 { //rising off the ground
                 break;
             }
 

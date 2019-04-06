@@ -104,7 +104,7 @@ impl Planetary for PlanetEarth {
 
     fn default_local_environment() -> ExternalForceEnvironment {
         ExternalForceEnvironment {
-            gravity: Vector3::new(0.0, 0.0, - Self::STD_GRAVITY_ACCEL),
+            gravity: Vector3::new(0.0, 0.0, Self::STD_GRAVITY_ACCEL),
             wind: Vector3::zeros(),
             constraint: GeoConstraintBox {
                 minimum: Vector3::new(-1000.0, -1000.0, Self::MIN_SIM_ALTITUDE),
@@ -117,7 +117,7 @@ impl Planetary for PlanetEarth {
         //TODO base local_environment on current position
         let local_floor = self.ref_position.alt_wgs84;
         ExternalForceEnvironment {
-            gravity: Vector3::new(0.0, 0.0, - Self::STD_GRAVITY_ACCEL),
+            gravity: Vector3::new(0.0, 0.0, Self::STD_GRAVITY_ACCEL),
             wind: Vector3::zeros(),
             constraint: GeoConstraintBox {
                 minimum: Vector3::new(-1000.0, -1000.0, local_floor),
@@ -202,7 +202,7 @@ impl PlanetEarth {
 
         // alt_wgs84 is in meters above WGS84 ellipsoid;
         // dist is in intertial frame (NED)
-        let d_alt_wgs84 = dist[2];
+        let d_alt_wgs84 = -dist[2];
 
         GlobalPosition {
             lat: pos.lat + d_lat.to_degrees(),
@@ -397,7 +397,8 @@ mod tests {
         let offset_pos2 = planet.position_at_distance(&known_dist);
         println!("offset_pos2 {:?} ", offset_pos2);
 
-        assert_approx_eq!(offset_pos2.alt_wgs84, home_pos.alt_wgs84 + known_dist[2]);
+        //WGS84 distance is meters above ellipsoid: local distance is in NED
+        assert_approx_eq!(offset_pos2.alt_wgs84, home_pos.alt_wgs84 - known_dist[2]);
         assert_approx_eq!(offset_pos2.lat, 37.8805831528412, 1.0e-6);
         assert_approx_eq!(offset_pos2.lon, -122.26132011145224, 1.0e-6);
 
@@ -455,7 +456,7 @@ mod tests {
         assert_approx_eq!(0.0, surface_dist3, 1E-12);
 
         //verify that adding a known distance works
-        let known_dist = Vector3::new(1000.0,1000.0,-100.0);
+        let known_dist = Vector3::new(1000.0,1000.0, 100.0);
         let offset_pos = PlanetEarth::add_offset_to_position(
             PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &known_dist);
         let (inertial_dist4, surface_dist4) = PlanetEarth::haversine_distance(
@@ -463,7 +464,7 @@ mod tests {
 
         assert_approx_eq!(inertial_dist4[0], known_dist[0], 0.125);
         assert_approx_eq!(inertial_dist4[1], known_dist[1], 0.125);
-        assert_approx_eq!(inertial_dist4[2], known_dist[2], 1E-9);
+        assert_approx_eq!(inertial_dist4[2], -known_dist[2], 1E-9);
 
         println!(" surface_dist4: {}", surface_dist4);
         assert_approx_eq!(surface_dist4, 1414.1704497959352, 0.25);

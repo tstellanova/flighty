@@ -18,18 +18,19 @@ fn get_test_reference_position() -> GlobalPosition {
 pub fn test_vehicle_takeoff() {
 
     let mut sim = Simulato::new(&get_test_reference_position());
-    let expected_accel =  flighty::models::MAX_ROTOR_ACCEL_VTOL_HYBRID -
+    let expected_accel =  -flighty::models::MAX_ROTOR_ACCEL_VTOL_HYBRID +
         flighty::planet::PlanetEarth::STD_GRAVITY_ACCEL;
 
     println!("thrust: {:0.3} grav: {:0.3} expected_accel: {:0.3}",
-             flighty::models::MAX_ROTOR_ACCEL_VTOL_HYBRID,
-             flighty::planet::PlanetEarth::STD_GRAVITY_ACCEL,
+             -flighty::models::MAX_ROTOR_ACCEL_VTOL_HYBRID,
+             -flighty::planet::PlanetEarth::STD_GRAVITY_ACCEL,
              expected_accel);
 
     let actuators: ActuatorControls = [1.0; 16];
 
     let mut last_gps_alt = sim.vehicle_state.get_global_position().alt_wgs84;
-    let mut last_z_vel:SpeedUnits = 0.0;
+    let mut last_z_vel:SpeedUnits = sim.vehicle_state.kinematic.inertial_velocity[2];
+    let mut last_z_pos:DistanceUnits = sim.vehicle_state.kinematic.inertial_position[2];
 
     for i in 0..100 {
         //max takeoff thrust
@@ -45,8 +46,15 @@ pub fn test_vehicle_takeoff() {
         let z_vel = sim.vehicle_state.kinematic.inertial_velocity[2];
         println!("z_vel: {:.4} last_z_vel: {:0.4}", z_vel, last_z_vel);
         assert_ne!(last_z_vel, z_vel);
-        assert_eq!(true, z_vel > last_z_vel);
+        assert_eq!(true, z_vel.abs() > last_z_vel.abs());
         last_z_vel = z_vel;
+
+        //ensure that Z position is ever increasing
+        let z_pos = sim.vehicle_state.kinematic.inertial_position[2];
+        println!("z_pos: {:.4} last_z_pos: {:0.4}", z_pos, last_z_pos);
+        assert_ne!(last_z_pos, z_pos);
+        assert_eq!(true, z_pos.abs() > last_z_pos.abs());
+        last_z_pos = z_pos;
 
         //ensure that gps altitude is ever increasing
         let gps_alt = sim.vehicle_state.get_global_position().alt_wgs84;
