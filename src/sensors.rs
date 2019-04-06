@@ -9,6 +9,7 @@ use sensulator::Sensulator;
 use crate::VirtualVehicleState;
 
 use crate::physical_types::*;
+use crate::planet::Planetary;
 use std::marker::PhantomData;
 use sensulator::MeasureVal;
 use nalgebra::Vector3;
@@ -153,9 +154,19 @@ impl SensorLike for AccelSensor {
 
     fn update(&mut self, state: &VirtualVehicleState)  -> &mut Self {
         //TODO functionalize this?
+
+        //TODO hokey AF -- need to rotate frame
+        let z_accel_measured;
+        if !state.kinematic.translation_constrained[2] {
+            z_accel_measured =  state.kinematic.inertial_accel[2] - state.planet.local_environment().gravity[2];
+        }
+        else {
+            z_accel_measured = - state.planet.local_environment().gravity[2];
+        }
+
         self.senso.inner[0].set_center_value(state.kinematic.inertial_accel[0]);
         self.senso.inner[1].set_center_value(state.kinematic.inertial_accel[1]);
-        self.senso.inner[2].set_center_value(state.kinematic.inertial_accel[2]);
+        self.senso.inner[2].set_center_value(z_accel_measured);
         self.remeasure();
         self
     }

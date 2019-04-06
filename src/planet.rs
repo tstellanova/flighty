@@ -115,7 +115,7 @@ impl Planetary for PlanetEarth {
 
     fn local_environment(&self) -> ExternalForceEnvironment {
         //TODO base local_environment on current position
-        let local_floor = self.ref_position.alt_wgs84;
+        let local_floor =  - self.ref_position.alt_wgs84;
         ExternalForceEnvironment {
             gravity: Vector3::new(0.0, 0.0, Self::STD_GRAVITY_ACCEL),
             wind: Vector3::zeros(),

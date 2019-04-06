@@ -82,24 +82,21 @@ pub fn vtol_hybrid_model_fn (
     //update current position and velocity based on prior step state
     for i in 0..3 {
         motion.inertial_accel[i] = sum_fortorks.forces[i] / VEHICLE_MASS_VTOL_HYBRID;
-//        if i == 2 {
-//            println!("accel {:0.3} = F {:0.3} / m {:0.3}",
-//                     motion.inertial_accel[i], sum_fortorks.forces[i], VEHICLE_MASS_VTOL_HYBRID);
-//        }
 
         if !motion.translation_constrained[i] {
             //use trapezoid rule to find new velocity and position from latest accel
             let dvel = interval * ((prev_accel[i] + motion.inertial_accel[i])/ 2.0);
-
-            //just use prev accel to find current velocity
-            //let dvel = interval * prev_accel[i];
-
             let prev_vel = motion.inertial_velocity[i];
             motion.inertial_velocity[i] = prev_vel + dvel;
 
             //use trapezoid rule to find new position from latest vel and prev_vel
             let dpos = interval * ((prev_vel + motion.inertial_velocity[i])/2.0);
             motion.inertial_position[i] += dpos;
+
+//            if i == 2 {
+//                println!("pos: {:0.7} prev_accel: {:0.6} cur_accel: {:0.6}",
+//                         motion.inertial_position[2], prev_accel[2], motion.inertial_accel[2]);
+//            }
 
 //            if  (2 == i) && (crate::planet::PlanetEarth::STD_GRAVITY_ACCEL != motion.inertial_accel[2]) {
 //                println!("dvel {:0.3} dpos: {:0.4}", dvel, dpos);
@@ -109,6 +106,9 @@ pub fn vtol_hybrid_model_fn (
 //                         motion.inertial_accel[2],
 //                         motion.inertial_velocity[2]);
 //            }
+        }
+        else {
+            motion.inertial_velocity[i] = 0.0;
         }
         //TODO handle torque
 
@@ -166,13 +166,14 @@ fn enforce_constraints(constraint: &GeoConstraintBox, motion: &mut RigidBodyStat
     //TODO enforce x-y constraints?
     let z_pos = motion.inertial_position[2];
     let z_vel = motion.inertial_velocity[2];
+    let z_accel = motion.inertial_accel[2];
 
     // if vehicle is on the floor and has downward Z momentum, need to be grounded
-    if (z_pos >= constraint.minimum[2]) && (z_vel > 0.0) {
+    if (z_pos >= constraint.minimum[2]) &&
+        ((z_vel > 0.0) || (z_accel > 0.0)) {
         motion.translation_constrained[2] = true;
         motion.inertial_velocity[2] = 0.0; //constrained: cannot move
         motion.inertial_position[2] = constraint.minimum[2];
-        println!("Z-constrainted! ");
     }
     else {
         //unconstrain Z
@@ -320,12 +321,12 @@ use assert_approx_eq::assert_approx_eq;
     fn test_find_min_takeoff_thrust() {
         let mut motion = RigidBodyState::new();
         let enviro = PlanetEarth::default_local_environment();
-        let step_interval:TimeIntervalUnits =  time_base_delta_to_interval(100 as TimeBaseUnits);
+        let step_interval:TimeIntervalUnits =  time_base_delta_to_interval(1000 as TimeBaseUnits);
         let actuator_step:f32 = 1E-4;
         let mut cur_actuator:f32 = 0.0;
         const WEIGHT_BALANCE_POINT:f32 = MIN_TAKEOFF_ROTOR_FRAC_VTOL_HYBRID;
 
-        // increase rotor actuator output until the vehicle accelerates off the ground
+        // increase rotor actuator output until the vehicle lifts off the ground
         loop {
             let actuators: ActuatorControls = [cur_actuator; 16];
             vtol_hybrid_model_fn(&actuators, step_interval, &enviro, &mut motion);
@@ -333,12 +334,11 @@ use assert_approx_eq::assert_approx_eq;
             if z_accel < 0.0 { //rising off the ground
                 break;
             }
-
             cur_actuator += actuator_step;
         }
 
         println!("tookoff at: {} expected: {}",cur_actuator, WEIGHT_BALANCE_POINT);
-        assert_approx_eq!(cur_actuator, WEIGHT_BALANCE_POINT, 1E-4);
+        assert_approx_eq!(cur_actuator, WEIGHT_BALANCE_POINT, 1.1E-4);
     }
 
 }
