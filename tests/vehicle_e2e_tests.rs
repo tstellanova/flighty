@@ -1,28 +1,67 @@
 extern crate flighty;
 
 use flighty::simulato::*;
-//use flighty::*;
+
 use flighty::physical_types::*;
-use flighty::models::ActuatorControls;
+use flighty::models::*;
+use assert_approx_eq::assert_approx_eq;
+
+fn get_test_reference_position() -> GlobalPosition {
+    GlobalPosition {
+        lat: 37.8716, //degrees
+        lon: -122.2727, //degrees
+        alt_wgs84: 10.0 //meters
+    }
+}
 
 #[test]
-pub fn test_vehicle_e2e() {
+pub fn test_vehicle_takeoff() {
 
-    let mut sim = Simulato::new();
+    let mut sim = Simulato::new(&get_test_reference_position());
+    let expected_accel =  -flighty::models::MAX_ROTOR_ACCEL_VTOL_HYBRID +
+        flighty::planet::PlanetEarth::STD_GRAVITY_ACCEL;
 
-    let mut last_time:TimeBaseUnits = 0;
-    for _i in 0..100 {
-        let actuators: ActuatorControls = [0.55; 16];
-        //TODO replace this hack perf test with benchmark?
-        sim.increment_simulated_time();
-        let time = sim.get_simulated_time();
-        sim.update(time, &actuators);
-//        if 0 != last_time {
-//            let dt = time - last_time;
-//            println!("dt: {}", dt);
-//            assert_eq!( (dt < 100), true);
-//        }
-//        last_time = time;
+    println!("thrust: {:0.3} grav: {:0.3} expected_accel: {:0.3}",
+             -flighty::models::MAX_ROTOR_ACCEL_VTOL_HYBRID,
+             -flighty::planet::PlanetEarth::STD_GRAVITY_ACCEL,
+             expected_accel);
+
+    let actuators: ActuatorControls = [1.0; 16];
+
+    let mut last_gps_alt = sim.vehicle_state.get_global_position().alt_wgs84;
+    let mut last_z_vel:SpeedUnits = sim.vehicle_state.kinematic.inertial_velocity[2];
+    let mut last_z_pos:DistanceUnits = sim.vehicle_state.kinematic.inertial_position[2];
+
+    for i in 0..100 {
+        //max takeoff thrust
+        sim.set_simulated_time( (i * 2000) + 500);
+        sim.update(&actuators);
+
+        //ensure that with constant rotor thrust, accel is constant
+        let z_accel = sim.vehicle_state.kinematic.inertial_accel[2];
+        println!("z_accel exp: {} act: {}", expected_accel, z_accel);
+        assert_approx_eq!(z_accel, expected_accel);
+
+        //ensure that Z velocity is ever increasing
+        let z_vel = sim.vehicle_state.kinematic.inertial_velocity[2];
+        println!("z_vel: {:.4} last_z_vel: {:0.4}", z_vel, last_z_vel);
+        assert_ne!(last_z_vel, z_vel);
+        assert_eq!(true, z_vel.abs() > last_z_vel.abs());
+        last_z_vel = z_vel;
+
+        //ensure that Z position is ever increasing
+        let z_pos = sim.vehicle_state.kinematic.inertial_position[2];
+        println!("z_pos: {:.4} last_z_pos: {:0.4}", z_pos, last_z_pos);
+        assert_ne!(last_z_pos, z_pos);
+        assert_eq!(true, z_pos.abs() > last_z_pos.abs());
+        last_z_pos = z_pos;
+
+        //ensure that gps altitude is ever increasing
+        let gps_alt = sim.vehicle_state.get_global_position().alt_wgs84;
+        println!("gps_alt: {:.4} last_gps_alt: {:0.4}", gps_alt, last_gps_alt);
+        assert_ne!(gps_alt, last_gps_alt);
+        assert_eq!(true, gps_alt > last_gps_alt);
+        last_gps_alt = gps_alt;
 
     }
 

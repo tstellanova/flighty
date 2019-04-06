@@ -1,13 +1,10 @@
-
-
+/**
+Copyright (c) 2019 Todd Stellanova
+LICENSE: See LICENSE file
+*/
 
 use nalgebra::{Rotation3, Vector3};
-
 use crate::physical_types::*;
-
-
-
-
 
 
 pub trait Planetary {
@@ -107,23 +104,24 @@ impl Planetary for PlanetEarth {
 
     fn default_local_environment() -> ExternalForceEnvironment {
         ExternalForceEnvironment {
-            gravity: Vector3::new(0.0, 0.0, 9.801405599),
+            gravity: Vector3::new(0.0, 0.0, Self::STD_GRAVITY_ACCEL),
             wind: Vector3::zeros(),
             constraint: GeoConstraintBox {
-                minimum: Vector3::new(-1000.0, -1000.0, 0.0),
-                maximum: Vector3::new(1000.0, 1000.0, 1000.0)
+                minimum: Vector3::new(-1000.0, -1000.0, Self::MIN_SIM_ALTITUDE),
+                maximum: Vector3::new(1000.0, 1000.0, Self::MAX_SIM_ALTITUDE)
             }
         }
     }
 
     fn local_environment(&self) -> ExternalForceEnvironment {
         //TODO base local_environment on current position
+        let local_floor =  - self.ref_position.alt_wgs84;
         ExternalForceEnvironment {
-            gravity: Vector3::new(0.0, 0.0, 9.801405599),
+            gravity: Vector3::new(0.0, 0.0, Self::STD_GRAVITY_ACCEL),
             wind: Vector3::zeros(),
             constraint: GeoConstraintBox {
-                minimum: Vector3::new(-1000.0, -1000.0, 0.0),
-                maximum: Vector3::new(1000.0, 1000.0, 1000.0)
+                minimum: Vector3::new(-1000.0, -1000.0, local_floor),
+                maximum: Vector3::new(1000.0, 1000.0, Self::MAX_SIM_ALTITUDE)
             }
         }
     }
@@ -134,6 +132,12 @@ impl Planetary for PlanetEarth {
 impl PlanetEarth {
     /// Radius of the planet
     const WGS84_EARTH_RADIUS: HighResDistanceUnits = 6.378137e6;
+    pub const STD_GRAVITY_ACCEL: AccelUnits = 9.80665;
+
+    /// max simulated altitude in NED
+    const MAX_SIM_ALTITUDE: DistanceUnits = 10000.0;
+    /// minimum simulated altitude in NED
+    const MIN_SIM_ALTITUDE: DistanceUnits = 0.0;
 
     const STD_PRESS: f64 = 101325.0;  // static pressure at sea level (Pa)
     pub const STD_TEMP: f64 = 288.15;    // standard temperature at sea level (K)
@@ -196,18 +200,24 @@ impl PlanetEarth {
         let d_lat = (dist[0] as HighResDistanceUnits) / planet_radius;
         let d_lon = (dist[1]as HighResDistanceUnits) / (planet_radius * lat_fact);
 
+        // alt_wgs84 is in meters above WGS84 ellipsoid;
+        // dist is in intertial frame (NED)
+        let d_alt_wgs84 = -dist[2];
+
         GlobalPosition {
             lat: pos.lat + d_lat.to_degrees(),
             lon: pos.lon + d_lon.to_degrees(),
-            alt: pos.alt - dist[2]
+            alt_wgs84: pos.alt_wgs84 + d_alt_wgs84
         }
     }
 
     /// Calculate the great circle distance between two points on the planet.
+    /// returns the inertial frame distance vector as well as the "ground distance"
+    ///
     pub fn haversine_distance(planet_radius: HighResDistanceUnits,
                               pos1: &GlobalPosition,
                               pos2: &GlobalPosition)
-        -> (Vector3<DistanceUnits>, HighResDistanceUnits) {
+        -> (/* inertial_distance */ Vector3<DistanceUnits>, /*ground_distance */ HighResDistanceUnits) {
 
         let lat1_rad:f64 = pos1.lat.to_radians();
         let lat2_rad:f64 = pos2.lat.to_radians();
@@ -234,12 +244,13 @@ impl PlanetEarth {
 
         let x_dist = total_dist * bearing.cos();
         let y_dist = total_dist * bearing.sin();
-
+        // alt_wgs84 is in meters above WGS84 ellipsoid; inertial frame is in NED
+        let z_dist = pos2.alt_wgs84 - pos1.alt_wgs84;
         (
             Vector3::new(
                 x_dist as DistanceUnits,
                 y_dist as DistanceUnits,
-                pos2.alt - pos1.alt ),
+                z_dist as DistanceUnits),
             total_dist
         )
     }
@@ -291,21 +302,18 @@ pub struct ExternalForceEnvironment {
 
 #[cfg(test)]
 mod tests {
-    //#[macro_use]
     use assert_approx_eq::assert_approx_eq;
 
     use crate::planet::*;
     use crate::physical_types::{MagUnits, GlobalPosition};
 
-    fn get_reference_position() -> GlobalPosition {
+    fn get_test_reference_position() -> GlobalPosition {
         GlobalPosition {
             lat: 37.8716, //degrees
             lon: -122.2727, //degrees
-            alt: 10.0 //meters
+            alt_wgs84: 10.0 //meters
         }
     }
-
-
 
     // Mag sample data obtained from NOAA site:
 
@@ -316,7 +324,6 @@ mod tests {
     // Zurich: Latitude: 47.37690 degrees, Longitude: 8.54170 degrees
     const ZURICH_CH_MAG_DATA: [f32; 8] =
         [2019.21096, 2.62243, 63.36259, 21539.3, 48042.1, 21516.8, 985.5, 42943.0];
-
 
     ///* sample_mag_data:
     /// 0. Date in decimal years
@@ -377,19 +384,21 @@ mod tests {
     #[test]
     fn test_position_at_distance() {
         let zero_dist = Vector3::zeros();
-        let home_pos = get_reference_position();
+        let home_pos = get_test_reference_position();
 
         let planet = PlanetEarth::new(&home_pos);
         let offset_pos1 = planet.position_at_distance(&zero_dist);
         println!("offset_pos1 {:?} ", offset_pos1);
-        assert_eq!(offset_pos1.alt, home_pos.alt);
+        assert_eq!(offset_pos1.alt_wgs84, home_pos.alt_wgs84);
         assert_approx_eq!(offset_pos1.lat, home_pos.lat, 1.0e-6);
         assert_approx_eq!(offset_pos1.lon, home_pos.lon, 1.0e-6);
 
-        let known_dist = Vector3::new(1000.0, 1000.0, -1000.0 );
+        let known_dist = Vector3::new(1000.0, 1000.0, 1000.0 );
         let offset_pos2 = planet.position_at_distance(&known_dist);
         println!("offset_pos2 {:?} ", offset_pos2);
-        assert_approx_eq!(offset_pos2.alt, 1010.0);
+
+        //WGS84 distance is meters above ellipsoid: local distance is in NED
+        assert_approx_eq!(offset_pos2.alt_wgs84, home_pos.alt_wgs84 - known_dist[2]);
         assert_approx_eq!(offset_pos2.lat, 37.8805831528412, 1.0e-6);
         assert_approx_eq!(offset_pos2.lon, -122.26132011145224, 1.0e-6);
 
@@ -400,7 +409,7 @@ mod tests {
     #[test]
     fn test_calculate_relative_distance() {
         let zero_dist = Vector3::zeros();
-        let home_pos = get_reference_position();
+        let home_pos = get_test_reference_position();
         let clone_home = home_pos.clone();
 
         let planet = PlanetEarth::new(&home_pos);
@@ -417,41 +426,49 @@ mod tests {
 
     #[test]
     fn test_haversine_distance() {
-        let home_pos = get_reference_position();
+        let home_pos = get_test_reference_position();
         let clone_home = home_pos.clone();
         let next_pos = GlobalPosition {
             lat: 38.0,
             lon: -122.0,
-            alt: 0.0
+            alt_wgs84: 20.0
         };
 
-        let (_vec, dist) = PlanetEarth::haversine_distance(
+        let (inertial_dist1, surface_dist1) = PlanetEarth::haversine_distance(
             PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &next_pos);
-        println!("dist: {}", dist);
-        assert_approx_eq!(27.889e3, dist, 5.0);//27.889183319007888 km from WGS84
+        println!("dist: {}", surface_dist1);
+        assert_approx_eq!(27.889e3, surface_dist1,  5.0);//27.889183319007888 km from WGS84
+        // remember that alt_wgs84 has opposite sense from inertial NED "down"
+        assert_approx_eq!(10.0, inertial_dist1[2], 1E-9);//check altitude
 
-        let (_vec, dist) = PlanetEarth::haversine_distance(
+        let (_vec, surface_dist2) = PlanetEarth::haversine_distance(
             PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &clone_home);
-        println!("clone home dist: {}", dist);
-        assert_approx_eq!(0.0, dist, 1E-12);
+        println!("clone home dist: {}", surface_dist2);
+        assert_approx_eq!(0.0, surface_dist2, 1E-12);
 
         //verify that a zero offset position has zero distance
         let zero_dist = Vector3::zeros();
         let offset_pos = PlanetEarth::add_offset_to_position(
             PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &zero_dist, );
-        let (_vec, dist) = PlanetEarth::haversine_distance(
+        let (_vec, surface_dist3) = PlanetEarth::haversine_distance(
             PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &offset_pos);
-        println!("zero_dist dist: {}", dist);
-        assert_approx_eq!(0.0, dist, 1E-12);
+        println!("zero_dist dist: {}", surface_dist3);
+        assert_approx_eq!(0.0, surface_dist3, 1E-12);
 
         //verify that adding a known distance works
-        let known_dist = Vector3::new(100.0,100.0,-100.0);
+        let known_dist = Vector3::new(1000.0,1000.0, 100.0);
         let offset_pos = PlanetEarth::add_offset_to_position(
             PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &known_dist);
-        let (_vec, dist) = PlanetEarth::haversine_distance(
+        let (inertial_dist4, surface_dist4) = PlanetEarth::haversine_distance(
             PlanetEarth::WGS84_EARTH_RADIUS, &home_pos, &offset_pos);
-        println!("known_dist dist: {}", dist);
-        assert_approx_eq!(dist, 141.421356237309505, 0.25);
+
+        assert_approx_eq!(inertial_dist4[0], known_dist[0], 0.125);
+        assert_approx_eq!(inertial_dist4[1], known_dist[1], 0.125);
+        assert_approx_eq!(inertial_dist4[2], -known_dist[2], 1E-9);
+
+        println!(" surface_dist4: {}", surface_dist4);
+        assert_approx_eq!(surface_dist4, 1414.1704497959352, 0.25);
+
 
         //TODO look at components
     }

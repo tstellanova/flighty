@@ -19,7 +19,7 @@ pub mod models;
 pub mod simulato;
 
 pub mod planet;
-use planet::{ExternalForceEnvironment, Planetary, PlanetEarth};
+use planet::{Planetary, PlanetEarth};
 
 #[cfg(test)]
 #[macro_use]
@@ -51,6 +51,9 @@ pub struct RigidBodyState {
 
     /// Angular acceleration in body frame (aka "rotation rate")
     pub body_angular_accel:Vector3<AngularAccelUnits>,
+
+    /// whether the body's motion is constrained in translation
+    pub translation_constrained: [bool; 3],
 }
 
 impl RigidBodyState {
@@ -63,6 +66,8 @@ impl RigidBodyState {
             body_angular_position: Vector3::new(0.0, 0.0, 0.0),
             body_angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             body_angular_accel: Vector3::new(0.0, 0.0, 0.0),
+
+            translation_constrained: [false, false, false],
         }
     }
 }
@@ -70,8 +75,6 @@ impl RigidBodyState {
 
 /// Tracks the "ideal" state of the vehicle, without sensor uncertainty.
 pub struct VirtualVehicleState {
-    /// Current time according the vehicle internal clock
-    pub base_time: TimeBaseUnits,
 
     /// The dynamic rigid body state of the vehicle
     pub kinematic: RigidBodyState,
@@ -91,9 +94,6 @@ pub struct VirtualVehicleState {
     /// The planetary environment the vehicle is in
     planet: PlanetEarth,
 
-    /// Simple snapshot of the local force environment
-    local_env: ExternalForceEnvironment,
-
     /// Global position
     global_position: GlobalPosition,
 
@@ -106,15 +106,13 @@ impl VirtualVehicleState {
     /// - ref_position : A reference global position from which inertial frame is measured
     pub fn new(ref_position:&GlobalPosition) -> Self {
         let mut inst = VirtualVehicleState {
-            base_time: 0,
             kinematic:  RigidBodyState::new(),
             global_position: *ref_position,
             base_temperature: PlanetEarth::STD_TEMP as TemperatureUnits,
             base_mag_field: Vector3::new(0.0, 0.0, 0.0),
             local_air_pressure: 0.0,
             relative_airspeed: 0.0,
-            planet: PlanetEarth::new(&ref_position),
-            local_env: PlanetEarth::default_local_environment(),
+            planet:PlanetEarth::new(&ref_position),
         };
 
         inst.set_global_position(ref_position, true);
@@ -124,18 +122,15 @@ impl VirtualVehicleState {
     pub fn set_global_position(&mut self, pos: &GlobalPosition, update_local_pos: bool) {
         self.global_position = *pos;
         self.local_air_pressure =
-            PlanetEarth::altitude_to_baro_pressure(self.global_position.alt);
+            PlanetEarth::altitude_to_baro_pressure(self.global_position.alt_wgs84);
         self.base_mag_field = self.planet.calculate_mag_field(pos);
 
-        //TODO update ExternalForceEnvironment
-        //self.local_env
-//        local_env: PlanetEarth::default_local_environment();
+        //TODO update ExternalForceEnvironment from global position
 
         if update_local_pos {
             self.kinematic.inertial_position =
                 self.planet.calculate_relative_distance(pos);
         }
-
     }
 
     pub fn get_global_position(&self) -> GlobalPosition {
@@ -186,6 +181,15 @@ impl PhysicalSensors {
         }
     }
 
+    pub fn remeasure_all(&mut self) {
+        self.gps.remeasure();
+        self.gyro.remeasure();
+        self.accel.remeasure();
+        self.mag.remeasure();
+        self.airspeed.remeasure();
+        self.baro.remeasure();
+    }
+
     pub fn update_from_virtual(&mut self, virt: &VirtualVehicleState) {
         self.gps.update(virt);
         self.gyro.update(virt);
@@ -194,14 +198,13 @@ impl PhysicalSensors {
         self.airspeed.update(virt);
         self.baro.update(virt);
 
-//        println!("sensed {} alt {:.3} gyro {:.6} accel {:.6} mag {:.6} asp {:.6} baro {:.6}",
-//                 virt.base_time,
-//                 self.gps.get_val().alt,
-//                 self.gyro.get_val()[0],
-//                 self.accel.get_val()[0],
-//                 self.mag.get_val()[0],
-//                 self.airspeed.get_val(),
-//                 self.baro.get_val());
+//        let accel_z = virt.kinematic.inertial_accel[2];
+//        if accel_z < 0.0 {
+//            let vel_z = virt.kinematic.inertial_velocity[2];
+//            let vel_d = self.gps.get_velocity()[2];
+//            println!("accel_z: {:.2} vel_z: {:.2} vel_d: {:.2} ", accel_z, vel_z, vel_d);
+//        }
+
     }
 }
 
@@ -218,7 +221,7 @@ mod tests {
         let pos = GlobalPosition {
             lat: 0.0,
             lon: 0.0,
-            alt: 0.0
+            alt_wgs84: 0.0
         };
         let mut virt = VirtualVehicleState::new(&pos);
         let mut sensed = PhysicalSensors::new();
@@ -227,7 +230,7 @@ mod tests {
         virt.local_air_pressure = SEA_LEVEL_AIR_PRESSURE;
 
         sensed.update_from_virtual(&virt);
-        assert_eq!(virt.global_position.alt, pos.alt);
+        assert_eq!(virt.global_position.alt_wgs84, pos.alt_wgs84);
 
         let accel = sensed.accel.senso.get_val();
         assert_approx_eq!(accel[0], 0.0, 1E-3);

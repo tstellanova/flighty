@@ -42,11 +42,20 @@ pub const TIME_BASE_DELTA_TO_INTERVAL: TimeIntervalUnits = 1E-6;
 /// For barometer, airspeed
 pub type PressureUnits = raw_types::PressureUnitsMillibar;
 
+pub type ForceUnits = raw_types::Newton; //kg m / s^2
+pub type TorqueUnits = raw_types::NewtonMeter;
 
+pub type MassUnits = raw_types::Kilogram;
+pub type MomentInertiaUnits = raw_types::KilogramMeterSquared;
+
+
+pub fn time_base_delta_to_interval(dt: TimeBaseUnits) -> TimeIntervalUnits {
+    (dt as TimeIntervalUnits) * TIME_BASE_DELTA_TO_INTERVAL
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct GlobalPosition {
     pub lat: LatLonUnits,
     pub lon: LatLonUnits,
-    pub alt: DistanceUnits,
+    pub alt_wgs84: DistanceUnits,
 }
