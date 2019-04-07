@@ -1,7 +1,10 @@
 [package]
 name = "flighty"
 version = "0.1.0"
-authors = ["tstellanova <tstellanova@users.noreply.github.com>"]
+authors = ["Todd Stellanova <tstellanova@users.noreply.github.com>"]
+license = "BSD-3-Clause"
+repository = "https://github.com/tstellanova/flighty"
+description = "Simple physical flight simulator"
 edition = "2018"
 
 [dependencies]

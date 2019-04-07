@@ -75,7 +75,13 @@ impl Simulato {
         let delta_real_micros = real_micros - self.last_real_micros;
         self.last_real_micros = real_micros;
 
-        let simulated_delta_micros = Self::SIMULATED_TIME_MULTIPLIER * delta_real_micros;
+        //although we'd like to accelerate simulation infinitely, we need to ensure
+        //that the discrete simulation times are granular enough to represent
+        //an accurate simulation
+        let ideal_delta_micros = Self::SIMULATED_TIME_MULTIPLIER * delta_real_micros;
+        let simulated_delta_micros =
+            if ideal_delta_micros < 1000 { ideal_delta_micros } else { 1000};
+
         //println!("delta real: {} sim: {}", delta_real_micros, simulated_delta_micros);
         let new_sim_time = self.simulated_time + simulated_delta_micros;
 
