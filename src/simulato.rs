@@ -12,6 +12,7 @@ use crate::planet::Planetary;
 
 pub struct Simulato {
     boot_time: SystemTime,
+    last_real_micros: TimeBaseUnits,
     simulated_time: TimeBaseUnits,
     last_update_time: TimeBaseUnits,
     pub abstime_offset: TimeBaseUnits,
@@ -25,6 +26,7 @@ impl Simulato {
     pub fn new(home: &GlobalPosition) -> Self {
         Simulato {
             boot_time: SystemTime::now(),
+            last_real_micros: 0,
             simulated_time: 0,
             last_update_time: 0,
             abstime_offset: 500,
@@ -64,13 +66,24 @@ impl Simulato {
         (duration.as_secs() * 1000000) + (duration.subsec_micros() as TimeBaseUnits)
     }
 
+    const SIMULATED_TIME_MULTIPLIER: u64 = 20;
+
     pub fn increment_simulated_time(&mut self) {
         //TODO allow simulated time to decouple from real time
         let new_real_time = self.elapsed();
-        self.set_simulated_time(Self::micros_from_duration(&new_real_time));
+        let real_micros = Self::micros_from_duration(&new_real_time);
+        let delta_real_micros = real_micros - self.last_real_micros;
+        self.last_real_micros = real_micros;
+
+        let simulated_delta_micros = Self::SIMULATED_TIME_MULTIPLIER * delta_real_micros;
+        //println!("delta real: {} sim: {}", delta_real_micros, simulated_delta_micros);
+        let new_sim_time = self.simulated_time + simulated_delta_micros;
+
+        self.set_simulated_time(new_sim_time);
         // with the passage of virtual time, all sensors should remeasure
         self.sensed.remeasure_all();
     }
+
 
     /// Heart of the update loop:
     ///  - Given a set of current actuator outputs,
@@ -154,10 +167,9 @@ mod tests {
         motion_check
     }
 
-    //TODO fix this random actuator test-- fails for small actuator values
     #[test]
     fn test_rand_actuator() {
-        const TEST_INTERVAL: TimeBaseUnits = 1000; //millisecond
+        const TEST_INTERVAL: TimeBaseUnits = 10;
         let mut simulato = Simulato::new(&get_test_reference_position());
         let mut rng = rand::thread_rng();
         simulato.increment_simulated_time();
@@ -184,7 +196,7 @@ mod tests {
             let mut simulato = Simulato::new(&get_test_reference_position());
             simulato.increment_simulated_time();
 
-            const TEST_INTERVAL: TimeBaseUnits = 1000; //millisecond
+            const TEST_INTERVAL: TimeBaseUnits = 100;
             let time = simulato.get_simulated_time() + TEST_INTERVAL;
 
             //ignore motion of first update
