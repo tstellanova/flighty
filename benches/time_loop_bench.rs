@@ -9,6 +9,7 @@ use flighty::physical_types::*;
 use flighty::models::ActuatorControls;
 use rand::prelude::*;
 
+use assert_approx_eq::assert_approx_eq;
 
 
 fn get_test_reference_position() -> GlobalPosition {
@@ -35,6 +36,7 @@ fn core_simulation() {
         simulato.increment_simulated_time();
         simulato.update(&actuators);
     }
+    assert_approx_eq!(simulato.realtime_multiplier, 50.0, 5.0);
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
