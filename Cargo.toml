@@ -9,7 +9,7 @@ edition = "2018"
 
 [dependencies]
 nalgebra = "0.17.2"
-sensulator = "0.4"
+#sensulator = "0.4"
 
 [dev-dependencies]
 criterion = "0.2"
@@ -17,6 +17,10 @@ assert_approx_eq = "1.1.0"
 rand = "0.6.5"
 quickcheck = "0.6"
 
+
+[dependencies.sensulator]
+#path = "../sensulator"
+git = "https://github.com/tstellanova/sensulator.git"
 
 [dependencies.num]
 version = "0.2"
