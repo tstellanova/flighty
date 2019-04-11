@@ -12,8 +12,11 @@ use crate::planet::Planetary;
 
 pub struct Simulato {
     boot_time: SystemTime,
+    last_real_micros: TimeBaseUnits,
     simulated_time: TimeBaseUnits,
     last_update_time: TimeBaseUnits,
+    /// Ratio of simulated time to real time
+    pub realtime_multiplier: f32,
     pub abstime_offset: TimeBaseUnits,
     pub vehicle_state: VirtualVehicleState,
     vehicle_model: DynamicModelFn,
@@ -25,8 +28,10 @@ impl Simulato {
     pub fn new(home: &GlobalPosition) -> Self {
         Simulato {
             boot_time: SystemTime::now(),
+            last_real_micros: 0,
             simulated_time: 0,
             last_update_time: 0,
+            realtime_multiplier: 1.0,
             abstime_offset: 500,
 
             vehicle_state: VirtualVehicleState::new(home),
@@ -64,13 +69,37 @@ impl Simulato {
         (duration.as_secs() * 1000000) + (duration.subsec_micros() as TimeBaseUnits)
     }
 
+    /// ideal ratio of simulated time to real time
+    const SIMULATED_TIME_MULTIPLIER: u64 = 60;
+
     pub fn increment_simulated_time(&mut self) {
-        //TODO allow simulated time to decouple from real time
         let new_real_time = self.elapsed();
-        self.set_simulated_time(Self::micros_from_duration(&new_real_time));
+        let real_micros = Self::micros_from_duration(&new_real_time);
+        let real_delta_micros = real_micros - self.last_real_micros;
+        self.last_real_micros = real_micros;
+
+        //although we'd like to accelerate simulation infinitely, we need to ensure
+        //that the discrete simulation times are granular enough to represent
+        //an accurate simulation
+        let ideal_delta_micros = Self::SIMULATED_TIME_MULTIPLIER * real_delta_micros;
+        let simulated_delta_micros =
+            if ideal_delta_micros < 1000 { ideal_delta_micros }
+            else {
+                1000
+            };
+
+        if real_delta_micros > 0 {
+            let cur_time_ratio: f32 = (simulated_delta_micros as f32) / (real_delta_micros as f32);
+            self.realtime_multiplier = Self::realtime_multiplier_avg(cur_time_ratio, self.realtime_multiplier);
+            //println!("delta real: {:05} ideal: {:05}", real_delta_micros, ideal_delta_micros);
+        }
+        let new_sim_time = self.simulated_time + simulated_delta_micros;
+
+        self.set_simulated_time(new_sim_time);
         // with the passage of virtual time, all sensors should remeasure
         self.sensed.remeasure_all();
     }
+
 
     /// Heart of the update loop:
     ///  - Given a set of current actuator outputs,
@@ -117,6 +146,13 @@ impl Simulato {
     pub fn get_ref_position(&self) -> GlobalPosition {
         self.vehicle_state.planet.get_reference_position()
     }
+
+    fn realtime_multiplier_avg(new_val: f32, ema: f32) -> f32 {
+        const WINDOW:f32 = 100.0;
+        const DECAY_ALPHA:f32 = 2.0 / (WINDOW + 1.0);
+        const ONE_MINUS_DECAY_ALPHA:f32 = 1.0 - DECAY_ALPHA;
+        (DECAY_ALPHA * new_val) + (ONE_MINUS_DECAY_ALPHA * ema)
+    }
 }
 
 
@@ -154,10 +190,9 @@ mod tests {
         motion_check
     }
 
-    //TODO fix this random actuator test-- fails for small actuator values
     #[test]
     fn test_rand_actuator() {
-        const TEST_INTERVAL: TimeBaseUnits = 1000; //millisecond
+        const TEST_INTERVAL: TimeBaseUnits = 10;
         let mut simulato = Simulato::new(&get_test_reference_position());
         let mut rng = rand::thread_rng();
         simulato.increment_simulated_time();
@@ -184,7 +219,7 @@ mod tests {
             let mut simulato = Simulato::new(&get_test_reference_position());
             simulato.increment_simulated_time();
 
-            const TEST_INTERVAL: TimeBaseUnits = 1000; //millisecond
+            const TEST_INTERVAL: TimeBaseUnits = 100;
             let time = simulato.get_simulated_time() + TEST_INTERVAL;
 
             //ignore motion of first update
