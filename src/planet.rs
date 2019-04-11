@@ -139,6 +139,16 @@ impl PlanetEarth {
     /// minimum simulated altitude in NED
     const MIN_SIM_ALTITUDE: DistanceUnits = 0.0;
 
+    // See code provided by NOAA in the public domain:
+    // https://www.ngdc.noaa.gov/geomag/WMM/wmm_ldownload.shtml
+    // -180...180 degrees longitude
+    // -90..90 degrees latitude
+    // 360 * 180 = 64800 points of mag field
+    // mag field grid generated from https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfgrid
+//    const MAG_FIELD_GRID: [[f32; 3]; 64800] = [
+//        []
+//    ;]
+
     const STD_PRESS: f64 = 101325.0;  // static pressure at sea level (Pa)
     pub const STD_TEMP: f64 = 288.15;    // standard temperature at sea level (K)
     const LAPSE_RATE: f64 = -0.0065;   // standard temp altitude lapse rate (K/m)
@@ -255,31 +265,22 @@ impl PlanetEarth {
         )
     }
 
-    /**
-    Calculate magnetic field from the magnetic inclination and declination.
-    */
+    ///
+    /// Calculate an approximate magnetic field from the magnetic inclination and declination.
+    /// Declination is the angle between measured magnetic north and true north.
+    /// Inclination or dip is a measure of how much magnetic fields line rise above or
+    /// dive below the horizontal ground plane of the compass.
+    ///
     pub fn mag_field_from_declination_inclination(
         declination: AngularDegreesUnits, inclination: AngularDegreesUnits) -> Vector3<MagUnits> {
         let decl_rad = declination.to_radians() as f32;
         let incl_rad = inclination.to_radians() as f32;
 
-        let incl_field = Vector3::new(
-            incl_rad.cos(),
-            0.0,
-            incl_rad.sin());
-
+        let incl_field = Vector3::new(  incl_rad.cos(), 0.0,  incl_rad.sin());
         let rotator = Rotation3::from_axis_angle(&Vector3::z_axis(), decl_rad);
         let net_field = rotator * incl_field;
         net_field
     }
-
-    /// returns Horizontal, Total intensity
-    pub fn mag_field_intensity(field: &Vector3<MagUnits>) -> (MagUnits, MagUnits) {
-        let h_intensity_sq = field[0] * field[0] + field[1] * field[1];
-        let t_intensity = (field[2] * field[2] + h_intensity_sq).sqrt();
-        (h_intensity_sq.sqrt(), t_intensity)
-    }
-
 
 }
 
@@ -317,13 +318,24 @@ mod tests {
 
     // Mag sample data obtained from NOAA site:
 
-    // Berkeley: Latitude: 37.87160 degrees, Longitude: -122.27270 degrees
+    /// Berkeley: Latitude: 37.87160 degrees, Longitude: -122.27270 degrees
     const BERKELEY_CA_MAG_DATA: [f32; 8] =
         [2019.21096, 13.45808, 61.28492, 23151.3, 48186.3, 22515.6, 5388.1, 42260.3];
 
-    // Zurich: Latitude: 47.37690 degrees, Longitude: 8.54170 degrees
+    /// Zurich: Latitude: 47.37690 degrees, Longitude: 8.54170 degrees
     const ZURICH_CH_MAG_DATA: [f32; 8] =
         [2019.21096, 2.62243, 63.36259, 21539.3, 48042.1, 21516.8, 985.5, 42943.0];
+
+    /// Hilo, Hawaii: Latitude: 19.729722 degrees, Longitude: -155.090000
+    const HILO_HI_MAG_DATA: [f32; 8] =
+        [2019.27123, 9.47178, 36.47267, 27770.7, 34534.7, 27392.1, 4570.0, 20528.8];
+
+    const ALL_SAMPLE_CITIES: [[f32;8] ; 3] = [
+        BERKELEY_CA_MAG_DATA,
+        ZURICH_CH_MAG_DATA,
+        HILO_HI_MAG_DATA
+    ];
+
 
     ///* sample_mag_data:
     /// 0. Date in decimal years
@@ -334,13 +346,12 @@ mod tests {
     /// 5. Xcomponent in nanoTesla (nT)
     /// 6. Ycomponent in nanoTesla (nT)
     /// 7. Zcomponent in nanoTesla (nT)
-    ///* returns (actual, expected) normalized magnetic field values
+    ///* returns (estimated, expected) normalized magnetic field values
     fn gen_mag_comparison_pair(sample_mag_data: &[f32; 8])
         -> (Vector3<MagUnits>, Vector3<MagUnits>) {
 
-        let declination_degs = sample_mag_data[1];
-        let inclination_degs = sample_mag_data[2];
-
+        let decl_degs = sample_mag_data[1];
+        let incl_degs = sample_mag_data[2];
         let total_mag = sample_mag_data[4];
 
         //normalize the components by the provided total magnitude
@@ -350,34 +361,23 @@ mod tests {
             sample_mag_data[7] / total_mag,
             );
 
-        let actual =
-            PlanetEarth::mag_field_from_declination_inclination(
-            declination_degs, inclination_degs);
+        let estimated =
+            PlanetEarth::mag_field_from_declination_inclination(decl_degs, incl_degs);
 
-        return (actual, expected);
+        return (estimated, expected);
     }
 
     #[test]
     fn test_mag_from_declination() {
         // verify that the output of mag_field_from_declination_inclination matches expected from NOAA
 
-        let (actual, expected) = gen_mag_comparison_pair(&BERKELEY_CA_MAG_DATA);
-        assert_approx_eq!(actual[0], expected[0], 1.0e-6);
-        assert_approx_eq!(actual[1], expected[1], 1.0e-6);
-        assert_approx_eq!(actual[2], expected[2], 1.0e-6);
-        //TODO intensity lacks proper scale
-//        let (h_intensity, t_intensity) = Planet::mag_field_intensity(&actual);
-//        assert_approx_eq!(h_intensity, BERKELEY_CA_MAG_DATA[3], 1.0e-6);
-//        assert_approx_eq!(t_intensity, BERKELEY_CA_MAG_DATA[4], 1.0e-6);
+        for i in 0..ALL_SAMPLE_CITIES.len() {
+            let (estimated, expected) = gen_mag_comparison_pair(&ALL_SAMPLE_CITIES[i]);
+            assert_approx_eq!(estimated[0], expected[0], 2.0e-6);
+            assert_approx_eq!(estimated[1], expected[1], 2.0e-6);
+            assert_approx_eq!(estimated[2], expected[2], 2.0e-6);
+        }
 
-        let (actual, expected) = gen_mag_comparison_pair(&ZURICH_CH_MAG_DATA);
-        assert_approx_eq!(actual[0], expected[0], 1.0e-6);
-        assert_approx_eq!(actual[1], expected[1], 1.0e-6);
-        assert_approx_eq!(actual[2], expected[2], 1.0e-6);
-        //TODO intensity lacks proper scale
-//        let (h_intensity, t_intensity) = Planet::mag_field_intensity(&actual);
-//        assert_approx_eq!(h_intensity, ZURICH_CH_MAG_DATA[3], 1.0e-6);
-//        assert_approx_eq!(t_intensity, ZURICH_CH_MAG_DATA[4], 1.0e-6);
     }
 
 
