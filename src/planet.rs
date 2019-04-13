@@ -3,9 +3,18 @@ Copyright (c) 2019 Todd Stellanova
 LICENSE: See LICENSE file
 */
 
+
+
 use nalgebra::{Rotation3, Vector3};
 use crate::physical_types::*;
+//use serde::{Deserialize};
+use rstar::{ RTree};
 
+
+#[path = "../build/geomag_record.rs"]
+mod geomag_record ;
+
+use geomag_record::GeomagRecord;
 
 pub trait Planetary {
 
@@ -54,6 +63,7 @@ pub struct PlanetEarth {
 ///
 impl Planetary for PlanetEarth {
 
+
     fn get_reference_position(&self) -> GlobalPosition {
         self.ref_position
     }
@@ -93,12 +103,8 @@ impl Planetary for PlanetEarth {
     }
 
     /// Given a position on the planet, calculate the expected magnetic field.
-    /// - See [gufm1]( https://pdfs.semanticscholar.org/0175/7d8d373355c0a2ae5c189ea2c95ca7bc0a25.pdf)
-    /// - See [NOAA calculators](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
-    ///
     fn calculate_mag_field(&self, _pos: &GlobalPosition) -> Vector3<MagUnits> {
-        //TODO calculate mag field from planetary factors
-        //for now we just return the same field as the reference position
+        //for now we just return the field precalculated from the reference position
         self.ref_mag_field
     }
 
@@ -114,7 +120,6 @@ impl Planetary for PlanetEarth {
     }
 
     fn local_environment(&self) -> ExternalForceEnvironment {
-        //TODO base local_environment on current position
         let local_floor =  - self.ref_position.alt_wgs84;
         ExternalForceEnvironment {
             gravity: Vector3::new(0.0, 0.0, Self::STD_GRAVITY_ACCEL),
@@ -129,7 +134,16 @@ impl Planetary for PlanetEarth {
 }
 
 
+/// The magnetic field grid
+static EARTH_MAG_GRID: &str =  include_str!(concat!(env!("OUT_DIR"), "/earth_mag.json"));
+
+lazy_static! {
+    static ref EARTH_MAG_TABLE : RTree<GeomagRecord> = serde_json::from_str(EARTH_MAG_GRID).unwrap();
+}
+
 impl PlanetEarth {
+
+
     /// Radius of the planet
     const WGS84_EARTH_RADIUS: HighResDistanceUnits = 6.378137e6;
     pub const STD_GRAVITY_ACCEL: AccelUnits = 9.80665;
@@ -138,6 +152,16 @@ impl PlanetEarth {
     const MAX_SIM_ALTITUDE: DistanceUnits = 10000.0;
     /// minimum simulated altitude in NED
     const MIN_SIM_ALTITUDE: DistanceUnits = 0.0;
+
+    // See code provided by NOAA in the public domain:
+    // https://www.ngdc.noaa.gov/geomag/WMM/wmm_ldownload.shtml
+    // -180...180 degrees longitude
+    // -90..90 degrees latitude
+    // 360 * 180 = 64800 points of mag field
+    // mag field grid generated from https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfgrid
+//    const MAG_FIELD_GRID: [[f32; 3]; 64800] = [
+//        []
+//    ;]
 
     const STD_PRESS: f64 = 101325.0;  // static pressure at sea level (Pa)
     pub const STD_TEMP: f64 = 288.15;    // standard temperature at sea level (K)
@@ -165,23 +189,26 @@ impl PlanetEarth {
         //TODO any precalculation geolocation factors
     }
 
+
+    ///
+    /// Calculate the local magnetic field environment given the current reference position.
+    /// This gives us a chance to precalculate and cache the estimated field.
+    ///
     fn precalc_mag_environment(&mut self) {
+        let search_point = [self.ref_position.lat, self.ref_position.lon];
 
-        //TODO precalc mag field from location instead of hardcoding
+        let parent_cell = EARTH_MAG_TABLE.nearest_neighbor(&search_point).unwrap();
+        //println!("closest parent_cell:\n{:?}\n{:?}", parent_cell, search_point);
 
-        // Given by NOAA for Berkeley, CA:
-        // in nanotesla: nT
-        // total_intensity, x,y,z:
-        // 48186.3, 22515.6, 5388.1, 42260.3
-        // 1 nanotesla = 1.0E-5 gauss
-
-        self.ref_mag_field = Vector3::new(
-            22515.6e-5,
-            5388.1e-5,
-            42260.3e-5
-        );
+        self.ref_mag_field[0] = parent_cell.mag_x;
+        self.ref_mag_field[1] = parent_cell.mag_y;
+        self.ref_mag_field[2] = parent_cell.mag_z;
 
     }
+
+
+
+
 
 
     /// Calculate a new GlobalPosition as a distance offset from a starting position.
@@ -255,31 +282,22 @@ impl PlanetEarth {
         )
     }
 
-    /**
-    Calculate magnetic field from the magnetic inclination and declination.
-    */
+    ///
+    /// Calculate an approximate magnetic field from the magnetic inclination and declination.
+    /// Declination is the angle between measured magnetic north and true north.
+    /// Inclination or dip is a measure of how much magnetic fields line rise above or
+    /// dive below the horizontal ground plane of the compass.
+    ///
     pub fn mag_field_from_declination_inclination(
         declination: AngularDegreesUnits, inclination: AngularDegreesUnits) -> Vector3<MagUnits> {
         let decl_rad = declination.to_radians() as f32;
         let incl_rad = inclination.to_radians() as f32;
 
-        let incl_field = Vector3::new(
-            incl_rad.cos(),
-            0.0,
-            incl_rad.sin());
-
+        let incl_field = Vector3::new(  incl_rad.cos(), 0.0,  incl_rad.sin());
         let rotator = Rotation3::from_axis_angle(&Vector3::z_axis(), decl_rad);
         let net_field = rotator * incl_field;
         net_field
     }
-
-    /// returns Horizontal, Total intensity
-    pub fn mag_field_intensity(field: &Vector3<MagUnits>) -> (MagUnits, MagUnits) {
-        let h_intensity_sq = field[0] * field[0] + field[1] * field[1];
-        let t_intensity = (field[2] * field[2] + h_intensity_sq).sqrt();
-        (h_intensity_sq.sqrt(), t_intensity)
-    }
-
 
 }
 
@@ -307,23 +325,35 @@ mod tests {
     use crate::planet::*;
     use crate::physical_types::{MagUnits, GlobalPosition};
 
-    fn get_test_reference_position() -> GlobalPosition {
-        GlobalPosition {
-            lat: 37.8716, //degrees
-            lon: -122.2727, //degrees
-            alt_wgs84: 10.0 //meters
-        }
-    }
-
     // Mag sample data obtained from NOAA site:
 
-    // Berkeley: Latitude: 37.87160 degrees, Longitude: -122.27270 degrees
+    /// Berkeley: Latitude: 37.87160 degrees, Longitude: -122.27270 degrees
+    const BERKELEY_LATITUDE: f64 = 37.87160;
+    const BERKELEY_LONGITUDE: f64 = -122.27270;
     const BERKELEY_CA_MAG_DATA: [f32; 8] =
         [2019.21096, 13.45808, 61.28492, 23151.3, 48186.3, 22515.6, 5388.1, 42260.3];
 
-    // Zurich: Latitude: 47.37690 degrees, Longitude: 8.54170 degrees
+    /// Zurich: Latitude: 47.37690 degrees, Longitude: 8.54170 degrees
     const ZURICH_CH_MAG_DATA: [f32; 8] =
         [2019.21096, 2.62243, 63.36259, 21539.3, 48042.1, 21516.8, 985.5, 42943.0];
+
+    /// Hilo, Hawaii: Latitude: 19.729722 degrees, Longitude: -155.090000
+    const HILO_HI_MAG_DATA: [f32; 8] =
+        [2019.27123, 9.47178, 36.47267, 27770.7, 34534.7, 27392.1, 4570.0, 20528.8];
+
+    const ALL_SAMPLE_CITIES: [[f32;8] ; 3] = [
+        BERKELEY_CA_MAG_DATA,
+        ZURICH_CH_MAG_DATA,
+        HILO_HI_MAG_DATA
+    ];
+
+    fn get_test_reference_position() -> GlobalPosition {
+        GlobalPosition {
+            lat:BERKELEY_LATITUDE,
+            lon:BERKELEY_LONGITUDE,
+            alt_wgs84: 10.0
+        }
+    }
 
     ///* sample_mag_data:
     /// 0. Date in decimal years
@@ -334,13 +364,12 @@ mod tests {
     /// 5. Xcomponent in nanoTesla (nT)
     /// 6. Ycomponent in nanoTesla (nT)
     /// 7. Zcomponent in nanoTesla (nT)
-    ///* returns (actual, expected) normalized magnetic field values
+    ///* returns (estimated, expected) normalized magnetic field values
     fn gen_mag_comparison_pair(sample_mag_data: &[f32; 8])
         -> (Vector3<MagUnits>, Vector3<MagUnits>) {
 
-        let declination_degs = sample_mag_data[1];
-        let inclination_degs = sample_mag_data[2];
-
+        let decl_degs = sample_mag_data[1];
+        let incl_degs = sample_mag_data[2];
         let total_mag = sample_mag_data[4];
 
         //normalize the components by the provided total magnitude
@@ -350,36 +379,47 @@ mod tests {
             sample_mag_data[7] / total_mag,
             );
 
-        let actual =
-            PlanetEarth::mag_field_from_declination_inclination(
-            declination_degs, inclination_degs);
+        let estimated =
+            PlanetEarth::mag_field_from_declination_inclination(decl_degs, incl_degs);
 
-        return (actual, expected);
+        return (estimated, expected);
     }
 
     #[test]
     fn test_mag_from_declination() {
         // verify that the output of mag_field_from_declination_inclination matches expected from NOAA
 
-        let (actual, expected) = gen_mag_comparison_pair(&BERKELEY_CA_MAG_DATA);
-        assert_approx_eq!(actual[0], expected[0], 1.0e-6);
-        assert_approx_eq!(actual[1], expected[1], 1.0e-6);
-        assert_approx_eq!(actual[2], expected[2], 1.0e-6);
-        //TODO intensity lacks proper scale
-//        let (h_intensity, t_intensity) = Planet::mag_field_intensity(&actual);
-//        assert_approx_eq!(h_intensity, BERKELEY_CA_MAG_DATA[3], 1.0e-6);
-//        assert_approx_eq!(t_intensity, BERKELEY_CA_MAG_DATA[4], 1.0e-6);
-
-        let (actual, expected) = gen_mag_comparison_pair(&ZURICH_CH_MAG_DATA);
-        assert_approx_eq!(actual[0], expected[0], 1.0e-6);
-        assert_approx_eq!(actual[1], expected[1], 1.0e-6);
-        assert_approx_eq!(actual[2], expected[2], 1.0e-6);
-        //TODO intensity lacks proper scale
-//        let (h_intensity, t_intensity) = Planet::mag_field_intensity(&actual);
-//        assert_approx_eq!(h_intensity, ZURICH_CH_MAG_DATA[3], 1.0e-6);
-//        assert_approx_eq!(t_intensity, ZURICH_CH_MAG_DATA[4], 1.0e-6);
+        for i in 0..ALL_SAMPLE_CITIES.len() {
+            let (estimated, expected) = gen_mag_comparison_pair(&ALL_SAMPLE_CITIES[i]);
+            assert_approx_eq!(estimated[0], expected[0], 2.0e-6);
+            assert_approx_eq!(estimated[1], expected[1], 2.0e-6);
+            assert_approx_eq!(estimated[2], expected[2], 2.0e-6);
+        }
     }
 
+
+    #[test]
+    fn test_earth_mag_cell_lookup() {
+        // for comparison:
+        //40.0,     -122.5,         21739.344   5406.754,   43971.156
+        //37.87160, -122.27270,     22515.6,    5388.1,     42260.3
+        //35.00,    -125.00,	    23578.587,  5527.177,   39108.935
+        let home_pos = get_test_reference_position();
+
+        let needle = [home_pos.lat, home_pos.lon];
+        let parent_cell = EARTH_MAG_TABLE.nearest_neighbor(&needle).unwrap();
+        println!("found parent_cell: {:?}", parent_cell);
+        assert_approx_eq!(parent_cell.lat_deg, home_pos.lat, geomag_record::GEOMAG_CELL_LAT_RADIUS);
+        assert_approx_eq!(parent_cell.lon_deg, home_pos.lon, geomag_record::GEOMAG_CELL_LON_RADIUS);
+
+        let planet = PlanetEarth::new(&home_pos);
+        let mfield = planet.calculate_mag_field(&home_pos);
+
+        //verify geomag values estimated from grid are within 5% of expected values
+        assert_approx_eq!(mfield[0], BERKELEY_CA_MAG_DATA[5], (BERKELEY_CA_MAG_DATA[5]*0.05).abs());
+        assert_approx_eq!(mfield[1], BERKELEY_CA_MAG_DATA[6], (BERKELEY_CA_MAG_DATA[6]*0.05).abs());
+        assert_approx_eq!(mfield[2], BERKELEY_CA_MAG_DATA[7], (BERKELEY_CA_MAG_DATA[7]*0.05).abs());
+    }
 
     #[test]
     fn test_position_at_distance() {
@@ -401,7 +441,6 @@ mod tests {
         assert_approx_eq!(offset_pos2.alt_wgs84, home_pos.alt_wgs84 - known_dist[2]);
         assert_approx_eq!(offset_pos2.lat, 37.8805831528412, 1.0e-6);
         assert_approx_eq!(offset_pos2.lon, -122.26132011145224, 1.0e-6);
-
     }
 
 

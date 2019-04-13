@@ -295,7 +295,7 @@ impl SensorLike for GlobalPositionSensor {
         let v_north = self.vel_north.measure();
         let v_east = self.vel_east.measure();
         let v_down = self.vel_down.measure();
-        let v_ground =  (v_north.exp2() + v_east.exp2()).sqrt();
+        let v_ground =  (v_north.powi(2) + v_east.powi(2)).sqrt();
 
         self.velocity_value = [
             v_north,
