@@ -113,7 +113,7 @@ impl VirtualVehicleState {
             kinematic:  RigidBodyState::new(),
             global_position: *ref_position,
             base_temperature: PlanetEarth::STD_TEMP as TemperatureUnits,
-            base_mag_field: Vector3::new(0.0, 0.0, 0.0),
+            base_mag_field: Vector3::zeros(),
             local_air_pressure: 0.0,
             relative_airspeed: 0.0,
             planet:PlanetEarth::new(&ref_position),

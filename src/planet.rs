@@ -103,12 +103,8 @@ impl Planetary for PlanetEarth {
     }
 
     /// Given a position on the planet, calculate the expected magnetic field.
-    /// - See [gufm1]( https://pdfs.semanticscholar.org/0175/7d8d373355c0a2ae5c189ea2c95ca7bc0a25.pdf)
-    /// - See [NOAA calculators](https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml)
-    ///
     fn calculate_mag_field(&self, _pos: &GlobalPosition) -> Vector3<MagUnits> {
-        //TODO calculate mag field from planetary factors
-        //for now we just return the same field as the reference position
+        //for now we just return the field precalculated from the reference position
         self.ref_mag_field
     }
 
@@ -124,7 +120,6 @@ impl Planetary for PlanetEarth {
     }
 
     fn local_environment(&self) -> ExternalForceEnvironment {
-        //TODO base local_environment on current position
         let local_floor =  - self.ref_position.alt_wgs84;
         ExternalForceEnvironment {
             gravity: Vector3::new(0.0, 0.0, Self::STD_GRAVITY_ACCEL),
@@ -194,14 +189,16 @@ impl PlanetEarth {
         //TODO any precalculation geolocation factors
     }
 
+
+    ///
+    /// Calculate the local magnetic field environment given the current reference position.
+    /// This gives us a chance to precalculate and cache the estimated field.
+    ///
     fn precalc_mag_environment(&mut self) {
         let search_point = [self.ref_position.lat, self.ref_position.lon];
-        //TODO more accurate field averaging of nearby geomag regions?
-        //let left_piece = AABB::from_corners([0.0, 0.0], [0.4, 1.0]);
-        //let elements_intersecting_left_piece = EARTH_MAG_TABLE.locate_in_envelope_intersecting(&left_piece);
 
         let parent_cell = EARTH_MAG_TABLE.nearest_neighbor(&search_point).unwrap();
-        println!("closest parent_cell:\n{:?}\n{:?}", parent_cell, search_point);
+        //println!("closest parent_cell:\n{:?}\n{:?}", parent_cell, search_point);
 
         self.ref_mag_field[0] = parent_cell.mag_x;
         self.ref_mag_field[1] = parent_cell.mag_y;
@@ -409,29 +406,19 @@ mod tests {
         //35.00,    -125.00,	    23578.587,  5527.177,   39108.935
         let home_pos = get_test_reference_position();
 
-        //ensure that the nearest cell we expect to find, actually exists
-        //this may change if geomag.csv changes
-        let expected_point = [40.00, -122.5];
-        let found = EARTH_MAG_TABLE.locate_at_point(&expected_point);
-        println!("found: {:?}", found.unwrap());
-        assert_eq!(true, found.is_some() );
-
         let needle = [home_pos.lat, home_pos.lon];
         let parent_cell = EARTH_MAG_TABLE.nearest_neighbor(&needle).unwrap();
+        println!("found parent_cell: {:?}", parent_cell);
         assert_approx_eq!(parent_cell.lat_deg, home_pos.lat, geomag_record::GEOMAG_CELL_LAT_RADIUS);
         assert_approx_eq!(parent_cell.lon_deg, home_pos.lon, geomag_record::GEOMAG_CELL_LON_RADIUS);
-    }
 
-    #[test]
-    fn test_approx_earth_mag_field() {
-        let home_pos = get_test_reference_position();
         let planet = PlanetEarth::new(&home_pos);
-        let probe_field = planet.calculate_mag_field(&home_pos);
+        let mfield = planet.calculate_mag_field(&home_pos);
 
         //verify geomag values estimated from grid are within 5% of expected values
-        assert_approx_eq!(probe_field[0], BERKELEY_CA_MAG_DATA[5], (BERKELEY_CA_MAG_DATA[5]*0.05).abs());
-        assert_approx_eq!(probe_field[1], BERKELEY_CA_MAG_DATA[6], (BERKELEY_CA_MAG_DATA[6]*0.05).abs());
-        assert_approx_eq!(probe_field[2], BERKELEY_CA_MAG_DATA[7], (BERKELEY_CA_MAG_DATA[7]*0.05).abs());
+        assert_approx_eq!(mfield[0], BERKELEY_CA_MAG_DATA[5], (BERKELEY_CA_MAG_DATA[5]*0.05).abs());
+        assert_approx_eq!(mfield[1], BERKELEY_CA_MAG_DATA[6], (BERKELEY_CA_MAG_DATA[6]*0.05).abs());
+        assert_approx_eq!(mfield[2], BERKELEY_CA_MAG_DATA[7], (BERKELEY_CA_MAG_DATA[7]*0.05).abs());
     }
 
     #[test]

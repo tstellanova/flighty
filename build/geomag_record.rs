@@ -19,42 +19,6 @@ pub struct GeomagRecord {
 }
 
 
-
-/*
-impl rstar::Point for GeomagRecord {
-    type Scalar = f64;
-    const DIMENSIONS: usize = 2;
-
-    fn generate(_generator: impl Fn(usize) -> Self::Scalar) -> Self {
-        GeomagRecord {
-            lat_deg: 0.0,
-            lon_deg: 0.0,
-            mag_x: 0.0,
-            mag_y: 0.0,
-            mag_z: 0.0,
-        }
-    }
-
-    fn nth(&self, index: usize) -> Self::Scalar {
-        match index {
-            0 => self.lat_deg,
-            1 => self.lon_deg,
-            _ => unreachable!()
-        }
-    }
-
-    fn nth_mut(&mut self, index: usize) -> &mut Self::Scalar {
-        match index {
-            0 => &mut self.lat_deg,
-            1 => &mut self.lon_deg,
-            _ => unreachable!()
-        }
-    }
-
-}
-
-*/
-
 impl rstar::RTreeObject for GeomagRecord {
     type Envelope = rstar::AABB<[f64; 2]>;
 
