@@ -21,6 +21,10 @@ pub mod simulato;
 pub mod planet;
 use planet::{Planetary, PlanetEarth};
 
+
+#[macro_use]
+extern crate lazy_static;
+
 #[cfg(test)]
 #[macro_use]
 extern crate quickcheck;

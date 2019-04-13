@@ -3,9 +3,18 @@ Copyright (c) 2019 Todd Stellanova
 LICENSE: See LICENSE file
 */
 
+
+
 use nalgebra::{Rotation3, Vector3};
 use crate::physical_types::*;
+//use serde::{Deserialize};
+use rstar::{ RTree};
 
+
+#[path = "../build/geomag_record.rs"]
+mod geomag_record ;
+
+use geomag_record::GeomagRecord;
 
 pub trait Planetary {
 
@@ -53,6 +62,7 @@ pub struct PlanetEarth {
 ///
 ///
 impl Planetary for PlanetEarth {
+
 
     fn get_reference_position(&self) -> GlobalPosition {
         self.ref_position
@@ -129,7 +139,16 @@ impl Planetary for PlanetEarth {
 }
 
 
+/// The magnetic field grid
+static EARTH_MAG_GRID: &str =  include_str!(concat!(env!("OUT_DIR"), "/earth_mag.json"));
+
+lazy_static! {
+    static ref EARTH_MAG_TABLE : RTree<GeomagRecord> = serde_json::from_str(EARTH_MAG_GRID).unwrap();
+}
+
 impl PlanetEarth {
+
+
     /// Radius of the planet
     const WGS84_EARTH_RADIUS: HighResDistanceUnits = 6.378137e6;
     pub const STD_GRAVITY_ACCEL: AccelUnits = 9.80665;
@@ -176,22 +195,23 @@ impl PlanetEarth {
     }
 
     fn precalc_mag_environment(&mut self) {
+        let search_point = [self.ref_position.lat, self.ref_position.lon];
+        //TODO more accurate field averaging of nearby geomag regions?
+        //let left_piece = AABB::from_corners([0.0, 0.0], [0.4, 1.0]);
+        //let elements_intersecting_left_piece = EARTH_MAG_TABLE.locate_in_envelope_intersecting(&left_piece);
 
-        //TODO precalc mag field from location instead of hardcoding
+        let parent_cell = EARTH_MAG_TABLE.nearest_neighbor(&search_point).unwrap();
+        println!("closest parent_cell:\n{:?}\n{:?}", parent_cell, search_point);
 
-        // Given by NOAA for Berkeley, CA:
-        // in nanotesla: nT
-        // total_intensity, x,y,z:
-        // 48186.3, 22515.6, 5388.1, 42260.3
-        // 1 nanotesla = 1.0E-5 gauss
-
-        self.ref_mag_field = Vector3::new(
-            22515.6e-5,
-            5388.1e-5,
-            42260.3e-5
-        );
+        self.ref_mag_field[0] = parent_cell.mag_x;
+        self.ref_mag_field[1] = parent_cell.mag_y;
+        self.ref_mag_field[2] = parent_cell.mag_z;
 
     }
+
+
+
+
 
 
     /// Calculate a new GlobalPosition as a distance offset from a starting position.
@@ -308,17 +328,11 @@ mod tests {
     use crate::planet::*;
     use crate::physical_types::{MagUnits, GlobalPosition};
 
-    fn get_test_reference_position() -> GlobalPosition {
-        GlobalPosition {
-            lat: 37.8716, //degrees
-            lon: -122.2727, //degrees
-            alt_wgs84: 10.0 //meters
-        }
-    }
-
     // Mag sample data obtained from NOAA site:
 
     /// Berkeley: Latitude: 37.87160 degrees, Longitude: -122.27270 degrees
+    const BERKELEY_LATITUDE: f64 = 37.87160;
+    const BERKELEY_LONGITUDE: f64 = -122.27270;
     const BERKELEY_CA_MAG_DATA: [f32; 8] =
         [2019.21096, 13.45808, 61.28492, 23151.3, 48186.3, 22515.6, 5388.1, 42260.3];
 
@@ -336,6 +350,13 @@ mod tests {
         HILO_HI_MAG_DATA
     ];
 
+    fn get_test_reference_position() -> GlobalPosition {
+        GlobalPosition {
+            lat:BERKELEY_LATITUDE,
+            lon:BERKELEY_LONGITUDE,
+            alt_wgs84: 10.0
+        }
+    }
 
     ///* sample_mag_data:
     /// 0. Date in decimal years
@@ -377,9 +398,41 @@ mod tests {
             assert_approx_eq!(estimated[1], expected[1], 2.0e-6);
             assert_approx_eq!(estimated[2], expected[2], 2.0e-6);
         }
-
     }
 
+
+    #[test]
+    fn test_earth_mag_cell_lookup() {
+        // for comparison:
+        //40.0,     -122.5,         21739.344   5406.754,   43971.156
+        //37.87160, -122.27270,     22515.6,    5388.1,     42260.3
+        //35.00,    -125.00,	    23578.587,  5527.177,   39108.935
+        let home_pos = get_test_reference_position();
+
+        //ensure that the nearest cell we expect to find, actually exists
+        //this may change if geomag.csv changes
+        let expected_point = [40.00, -122.5];
+        let found = EARTH_MAG_TABLE.locate_at_point(&expected_point);
+        println!("found: {:?}", found.unwrap());
+        assert_eq!(true, found.is_some() );
+
+        let needle = [home_pos.lat, home_pos.lon];
+        let parent_cell = EARTH_MAG_TABLE.nearest_neighbor(&needle).unwrap();
+        assert_approx_eq!(parent_cell.lat_deg, home_pos.lat, geomag_record::GEOMAG_CELL_LAT_RADIUS);
+        assert_approx_eq!(parent_cell.lon_deg, home_pos.lon, geomag_record::GEOMAG_CELL_LON_RADIUS);
+    }
+
+    #[test]
+    fn test_approx_earth_mag_field() {
+        let home_pos = get_test_reference_position();
+        let planet = PlanetEarth::new(&home_pos);
+        let probe_field = planet.calculate_mag_field(&home_pos);
+
+        //verify geomag values estimated from grid are within 5% of expected values
+        assert_approx_eq!(probe_field[0], BERKELEY_CA_MAG_DATA[5], (BERKELEY_CA_MAG_DATA[5]*0.05).abs());
+        assert_approx_eq!(probe_field[1], BERKELEY_CA_MAG_DATA[6], (BERKELEY_CA_MAG_DATA[6]*0.05).abs());
+        assert_approx_eq!(probe_field[2], BERKELEY_CA_MAG_DATA[7], (BERKELEY_CA_MAG_DATA[7]*0.05).abs());
+    }
 
     #[test]
     fn test_position_at_distance() {
@@ -401,7 +454,6 @@ mod tests {
         assert_approx_eq!(offset_pos2.alt_wgs84, home_pos.alt_wgs84 - known_dist[2]);
         assert_approx_eq!(offset_pos2.lat, 37.8805831528412, 1.0e-6);
         assert_approx_eq!(offset_pos2.lon, -122.26132011145224, 1.0e-6);
-
     }
 
 
