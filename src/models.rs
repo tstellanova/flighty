@@ -8,7 +8,8 @@ use crate::RigidBodyState;
 use crate::physical_types::*;
 use crate::planet::{ExternalForceEnvironment, GeoConstraintBox, PlanetEarth};
 
-use nalgebra::{Vector3};
+use nalgebra::{Matrix3, UnitQuaternion, Vector3};
+use std::f32::consts::PI;
 
 pub type DynamicModelFn = fn(
     actuators: &ActuatorControls,
@@ -35,11 +36,7 @@ impl ForcesAndTorques {
 
 ///mass of the simulated vehicle
 pub const VEHICLE_MASS_VTOL_HYBRID: MassUnits = 0.8;
-//const VEHICLE_MOMENT_INERTIA:Matrix3<MomentInertiaUnits> = Matrix3::new(
-//    0.005,  0.0,    0.0,
-//    0.0,    0.005,  0.0,
-//    0.0,    0.0,    0.009
-//);
+
 
 /// rotors are commonly rated in weight-equivalent thrust, eg "grams"
 const MAX_ROTOR_THRUST_WEIGHT_EQUIV_VTOL_HYBRID: MassUnits = 0.82;
@@ -129,12 +126,12 @@ fn internal_forces_and_torques_vtol_hybrid(actuators: &ActuatorControls) -> Forc
 
     // only the first N actuators are rotors
     let rotor_acts = &actuators[..NUM_LIFT_ROTORS_VTOL_HYBRID];
-    let body_z_force:ForceUnits = rotor_acts.iter().fold(0.0,
+    let thrust_force:ForceUnits = rotor_acts.iter().fold(0.0,
         |acc, act| acc + act * MAX_ROTOR_THRUST_VTOL_HYBRID
     );
 
     //TODO properly transform axial_force
-    let axial_force = Vector3::new(0.0, 0.0, -body_z_force);
+    let axial_force = Vector3::new(0.0, 0.0, -thrust_force);
 
     ForcesAndTorques {
         forces: axial_force,
@@ -179,8 +176,42 @@ fn enforce_constraints(constraint: &GeoConstraintBox, motion: &mut RigidBodyStat
         //unconstrain Z
         motion.translation_constrained[2] = false;
     }
+    //TODO no need to constrain attitude?
 }
 
+
+const NUM_ROTORS_VTOL_HYBRID: usize = 4;
+const ROTOR_ARM_LEN_VTOL_HYBRID: DistanceUnits = 100E-3;
+
+lazy_static! {
+
+    static ref ROTOR_POSITIONS_VTOL_HYBRID: [Vector3<f32>;NUM_ROTORS_VTOL_HYBRID]  = {
+        //initial rotor positions are simple plus-shape
+        let mut all_rotors:[Vector3<f32>;NUM_ROTORS_VTOL_HYBRID]  = [
+            Vector3::new(0.0, ROTOR_ARM_LEN_VTOL_HYBRID, 0.0),
+            Vector3::new(0.0, -ROTOR_ARM_LEN_VTOL_HYBRID, 0.0),
+            Vector3::new(ROTOR_ARM_LEN_VTOL_HYBRID, 0.0, 0.0),
+            Vector3::new(-ROTOR_ARM_LEN_VTOL_HYBRID, 0.0, 0.0),
+            ];
+
+        //rotate the rotor positions around the Z axis
+        let quarter_rot:UnitQuaternion<f32> = UnitQuaternion::from_euler_angles(0.0,0.0,-PI/4.0);
+        for i in 0..NUM_ROTORS_VTOL_HYBRID {
+            let pos = all_rotors[i];
+            all_rotors[i] = quarter_rot * pos;
+        }
+
+        all_rotors
+    };
+
+    /// Moments of inertia for the vehicle
+    static ref MOMENTS_HYBRID_VTOL:Matrix3<MomentInertiaUnits> = Matrix3::new(
+        0.005,  0.0,    0.0,
+        0.0,    0.005,  0.0,
+        0.0,    0.0,    0.009
+    );
+
+}
 
 
 /*
@@ -199,6 +230,15 @@ mod tests {
 use super::*;
 use crate::planet::{Planetary, PlanetEarth};
 use assert_approx_eq::assert_approx_eq;
+
+//    #[test]
+//    fn examine_rotor_positions() {
+//        for i in 0..4 {
+//            let pos = ROTOR_POSITIONS_VTOL_HYBRID[i];
+//            println!("pos: {:?}", pos);
+//        }
+//        assert_eq!(false, true);
+//    }
 
     const HIGH_ALTITUDE_SAMPLE: DistanceUnits = -500.0; //start at 500m up
 
