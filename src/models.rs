@@ -85,20 +85,20 @@ pub fn vtol_hybrid_model_fn (
 /// Apply translation forces to rigid body, changing linear acceleration
 fn apply_forces_vtol_hybrid(forces: &Vector3<ForceUnits>,
                             interval: TimeIntervalUnits, motion: &mut RigidBodyState) {
+    // update linear acceleration
     let prev_accel = motion.inertial_accel;
+    motion.inertial_accel =   forces / VEHICLE_MASS_VTOL_HYBRID;
 
-    //update current position and velocity based on prior step state
+    //update current velocity and position based on prior step state
     for i in 0..3 {
-        motion.inertial_accel[i] = forces[i] / VEHICLE_MASS_VTOL_HYBRID;
-
         if !motion.translation_constrained[i] {
-            //use trapezoid rule to find new linear velocity from latest accel
-            let dvel = interval * ((prev_accel[i] + motion.inertial_accel[i])/ 2.0);
+            //use trapezoid rule to find new velocity from latest and previous accel
+            let dvel = interval * ((prev_accel[i] + motion.inertial_accel[i]) / 2.0);
             let prev_vel = motion.inertial_velocity[i];
             motion.inertial_velocity[i] = prev_vel + dvel;
 
-            //use trapezoid rule to find new position from latest vel and prev_vel
-            let dpos = interval * ((prev_vel + motion.inertial_velocity[i])/2.0);
+            //use trapezoid rule to find new position from latest and previous velocity
+            let dpos = interval * ((prev_vel + motion.inertial_velocity[i]) / 2.0);
             motion.inertial_position[i] += dpos;
         }
         else {
@@ -440,6 +440,58 @@ use assert_approx_eq::assert_approx_eq;
     }
 
     #[test]
+    fn test_apply_forces_vtol_hybrid() {
+        //verify that when we apply forces to various axes, we get the expected linear accel
+
+        let interval: TimeIntervalUnits = 1E-3;
+        const KNOWN_FORCE:ForceUnits = 10.0;
+        let expected_accel = KNOWN_FORCE / VEHICLE_MASS_VTOL_HYBRID;
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(KNOWN_FORCE, 0.0, 0.0);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la00: {:?} expected: {:0.4}", state.inertial_accel,expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[0], expected_accel);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(-KNOWN_FORCE, 0.0, 0.0);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la01: {:?} expected: {:0.4}", state.inertial_accel,-expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[0], -expected_accel);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(0.0, KNOWN_FORCE, 0.0);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la10: {:?} expected: {:0.4}", state.inertial_accel,expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[1], expected_accel);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(0.0, -KNOWN_FORCE, 0.0);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la11: {:?} expected: {:0.4}", state.inertial_accel,-expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[1], -expected_accel);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(0.0, 0.0, KNOWN_FORCE);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la20: {:?} expected: {:0.4}", state.inertial_accel,expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[2], expected_accel);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(0.0, 0.0, -KNOWN_FORCE);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la21: {:?} expected: {:0.4}", state.inertial_accel,-expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[2], -expected_accel);
+
+    }
+
+    #[test]
     fn test_apply_torques_vtol_hybrid() {
         // Verify that when we apply torques to various axes, we get the expected angular accel
         let interval: TimeIntervalUnits = 1E-3;
@@ -461,8 +513,6 @@ use assert_approx_eq::assert_approx_eq;
         println!("aa01: {:?} expected: {:0.4}", state.body_angular_accel,-expected_accel);
         assert_approx_eq!(state.body_angular_accel.magnitude(), expected_accel, 1E-3);
         assert_approx_eq!(state.body_angular_accel[0],-expected_accel);
-        assert_approx_eq!(state.body_angular_accel[1],0.0);
-        assert_approx_eq!(state.body_angular_accel[2],0.0);
 
         let expected_accel = KNOWN_TORQUE / M11_MOMENT_VTOL_HYBRID;
         let mut state: RigidBodyState = RigidBodyState::new();
@@ -470,18 +520,14 @@ use assert_approx_eq::assert_approx_eq;
         apply_torques_vtol_hybrid(&torques,  interval,&mut state);
         println!("aa10: {:?} expected: {:0.4}", state.body_angular_accel,expected_accel);
         assert_approx_eq!(state.body_angular_accel.magnitude(), expected_accel, 1E-3);
-        assert_approx_eq!(state.body_angular_accel[0],0.0);
         assert_approx_eq!(state.body_angular_accel[1],expected_accel);
-        assert_approx_eq!(state.body_angular_accel[2],0.0);
 
         let mut state: RigidBodyState = RigidBodyState::new();
         let torques: Vector3<TorqueUnits> = Vector3::new(0.0, -KNOWN_TORQUE, 0.0);
         apply_torques_vtol_hybrid(&torques,  interval,&mut state);
         println!("aa11: {:?} expected: {:0.4}", state.body_angular_accel,-expected_accel);
         assert_approx_eq!(state.body_angular_accel.magnitude(), expected_accel, 1E-3);
-        assert_approx_eq!(state.body_angular_accel[0],0.0);
         assert_approx_eq!(state.body_angular_accel[1],-expected_accel);
-        assert_approx_eq!(state.body_angular_accel[2],0.0);
 
         let expected_accel = KNOWN_TORQUE / M22_MOMENT_VTOL_HYBRID;
         let mut state: RigidBodyState = RigidBodyState::new();
@@ -489,8 +535,6 @@ use assert_approx_eq::assert_approx_eq;
         apply_torques_vtol_hybrid(&torques,  interval,&mut state);
         println!("aa20: {:?} expected: {:0.4}", state.body_angular_accel,expected_accel);
         assert_approx_eq!(state.body_angular_accel.magnitude(), expected_accel, 1E-3);
-        assert_approx_eq!(state.body_angular_accel[0],0.0);
-        assert_approx_eq!(state.body_angular_accel[1],0.0);
         assert_approx_eq!(state.body_angular_accel[2],expected_accel, 1E-3);
 
         let mut state: RigidBodyState = RigidBodyState::new();
@@ -498,8 +542,6 @@ use assert_approx_eq::assert_approx_eq;
         apply_torques_vtol_hybrid(&torques,  interval,&mut state);
         println!("aa21: {:?} expected: {:0.4}", state.body_angular_accel,-expected_accel);
         assert_approx_eq!(state.body_angular_accel.magnitude(), expected_accel, 1E-3);
-        assert_approx_eq!(state.body_angular_accel[0],0.0);
-        assert_approx_eq!(state.body_angular_accel[1],0.0);
         assert_approx_eq!(state.body_angular_accel[2],-expected_accel, 1E-3);
 
         //test combined multi-axis torque
