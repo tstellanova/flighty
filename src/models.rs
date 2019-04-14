@@ -69,19 +69,29 @@ pub fn vtol_hybrid_model_fn (
 
     // collect internal (actuator) forces
     let int_fortorks = internal_forces_and_torques_vtol_hybrid(&actuators);
-    // collect external forces (such as gravity and wind)
+    // collect external forces (such as gravity, wind, drag)
     let ext_fortorks = external_forces_and_torques_vtol_hybrid(&motion, &enviro);
     // sum all forces
     let sum_fortorks = ForcesAndTorques::sum(&int_fortorks, &ext_fortorks);
 
+    apply_forces_vtol_hybrid(&sum_fortorks.forces, interval, motion);
+    apply_torques_vtol_hybrid(&sum_fortorks.torques, interval, motion);
+
+//    println!("interval: {} accel: {} vel: {} pos: {}", interval,
+//             motion.inertial_accel, motion.inertial_velocity, motion.inertial_position);
+}
+
+/// Apply translation forces to rigid body, changing linear acceleration
+fn apply_forces_vtol_hybrid(forces: &Vector3<ForceUnits>,
+                            interval: TimeIntervalUnits, motion: &mut RigidBodyState) {
     let prev_accel = motion.inertial_accel;
 
     //update current position and velocity based on prior step state
     for i in 0..3 {
-        motion.inertial_accel[i] = sum_fortorks.forces[i] / VEHICLE_MASS_VTOL_HYBRID;
+        motion.inertial_accel[i] = forces[i] / VEHICLE_MASS_VTOL_HYBRID;
 
         if !motion.translation_constrained[i] {
-            //use trapezoid rule to find new velocity and position from latest accel
+            //use trapezoid rule to find new linear velocity from latest accel
             let dvel = interval * ((prev_accel[i] + motion.inertial_accel[i])/ 2.0);
             let prev_vel = motion.inertial_velocity[i];
             motion.inertial_velocity[i] = prev_vel + dvel;
@@ -89,31 +99,38 @@ pub fn vtol_hybrid_model_fn (
             //use trapezoid rule to find new position from latest vel and prev_vel
             let dpos = interval * ((prev_vel + motion.inertial_velocity[i])/2.0);
             motion.inertial_position[i] += dpos;
-
-//            if i == 2 {
-//                println!("pos: {:0.7} prev_accel: {:0.6} cur_accel: {:0.6}",
-//                         motion.inertial_position[2], prev_accel[2], motion.inertial_accel[2]);
-//            }
-
-//            if  (2 == i) && (crate::planet::PlanetEarth::STD_GRAVITY_ACCEL != motion.inertial_accel[2]) {
-//                println!("dvel {:0.3} dpos: {:0.4}", dvel, dpos);
-//                println!("int: {:0.4} pos: {:0.2} a_z: {:0.2} vel: {:0.3}",
-//                        interval,
-//                         motion.inertial_position[2],
-//                         motion.inertial_accel[2],
-//                         motion.inertial_velocity[2]);
-//            }
         }
         else {
             motion.inertial_velocity[i] = 0.0;
         }
-        //TODO handle torque
+    }
+}
 
+
+/// Apply torque to rigid body, changing angular acceleration
+fn apply_torques_vtol_hybrid(torques: &Vector3<TorqueUnits>,  interval: TimeIntervalUnits,
+                             motion: &mut RigidBodyState) {
+    let prev_accel = motion.body_angular_accel;
+
+    //Handle torques if they don't sum to zero
+    if torques.magnitude() > 0.0 {
+        motion.body_angular_accel = torques / MOMENTS_HYBRID_VTOL;
+
+        if !motion.rotation_locked() {
+            //use trapezoid rule to find new angular velocity from latest accel
+            let dvel = interval*((prev_accel + motion.body_angular_accel)/2.0);
+            let prev_vel = motion.body_angular_velocity;
+            motion.body_angular_velocity = prev_vel + dvel;
+
+            //use trapezoid rule to find new angular position from latest vel and prev_vel
+            let dpos = interval * ((prev_vel + motion.body_angular_velocity)/2.0);
+            motion.body_angular_position += dpos;
+        }
+        else {
+            motion.body_angular_velocity = Vector3::zeros();
+        }
     }
 
-
-//    println!("interval: {} accel: {} vel: {} pos: {}", interval,
-//             motion.inertial_accel, motion.inertial_velocity, motion.inertial_position);
 }
 
 
@@ -122,20 +139,33 @@ pub fn vtol_hybrid_model_fn (
 /// sum all forces and torques of actuators
 ///
 fn internal_forces_and_torques_vtol_hybrid(actuators: &ActuatorControls) -> ForcesAndTorques {
-    //TODO sum torques of actuators
 
     // only the first N actuators are rotors
     let rotor_acts = &actuators[..NUM_LIFT_ROTORS_VTOL_HYBRID];
-    let thrust_force:ForceUnits = rotor_acts.iter().fold(0.0,
+    let mut sum_torks = Vector3::zeros();
+    for i in 0..NUM_LIFT_ROTORS_VTOL_HYBRID {
+        let act = rotor_acts[i];
+        let thrust_force = act * MAX_ROTOR_THRUST_VTOL_HYBRID;
+        let thrust_vec:Vector3<ForceUnits> = Vector3::new(0.0, 0.0, -thrust_force );
+        let act_pos =   ROTOR_POSITIONS_VTOL_HYBRID[i];
+        //the torque contribution is the thrust crossed with the rotor position in body frame
+        let tork =  act_pos.cross(&thrust_vec);
+        //println!("tf[{}]: {:0.2} tork: {:?} ",i,thrust_force, tork);
+        sum_torks += tork;
+        //TODO add in propeller drag torque, affects rotation about Z axis (yaw)
+    }
+
+    //sum total rotor thrust force for translation
+    let total_thrust:ForceUnits = rotor_acts.iter().fold(0.0,
         |acc, act| acc + act * MAX_ROTOR_THRUST_VTOL_HYBRID
     );
 
     //TODO properly transform axial_force
-    let axial_force = Vector3::new(0.0, 0.0, -thrust_force);
+    let axial_force = Vector3::new(0.0, 0.0, -total_thrust);
 
     ForcesAndTorques {
         forces: axial_force,
-        torques: Vector3::zeros()
+        torques: sum_torks
     }
 }
 
@@ -144,7 +174,7 @@ fn internal_forces_and_torques_vtol_hybrid(actuators: &ActuatorControls) -> Forc
 ///
 fn external_forces_and_torques_vtol_hybrid(_kinematic: &RigidBodyState,
                                            enviro: &ExternalForceEnvironment) -> ForcesAndTorques {
-    //TODO add drag force
+    //TODO add drag force, wind force
     let grav_force = enviro.gravity * VEHICLE_MASS_VTOL_HYBRID;
     let total_force = grav_force;
 
@@ -173,10 +203,24 @@ fn enforce_constraints(constraint: &GeoConstraintBox, motion: &mut RigidBodyStat
         motion.inertial_position[2] = constraint.minimum[2];
     }
     else {
-        //unconstrain Z
+        //unconstrain Z translation
         motion.translation_constrained[2] = false;
     }
-    //TODO no need to constrain attitude?
+
+    //TODO what about travel on x-y plane, with unconstrained Yaw?
+    if motion.translation_constrained[2] {
+        //constrain rotation
+        motion.rotation_constrained[0] = true;
+        motion.rotation_constrained[1] = true;
+        motion.rotation_constrained[2] = true;
+    }
+    else {
+        //unconstrain rotation
+        motion.rotation_constrained[0] = false;
+        motion.rotation_constrained[1] = false;
+        motion.rotation_constrained[2] = false;
+    }
+
 }
 
 
@@ -185,9 +229,10 @@ const ROTOR_ARM_LEN_VTOL_HYBRID: DistanceUnits = 100E-3;
 
 lazy_static! {
 
-    static ref ROTOR_POSITIONS_VTOL_HYBRID: [Vector3<f32>;NUM_ROTORS_VTOL_HYBRID]  = {
+    /// The body-frame positions of the lift rotors for this vehicle
+    static ref ROTOR_POSITIONS_VTOL_HYBRID: [Vector3<DistanceUnits>;NUM_ROTORS_VTOL_HYBRID]  = {
         //initial rotor positions are simple plus-shape
-        let mut all_rotors:[Vector3<f32>;NUM_ROTORS_VTOL_HYBRID]  = [
+        let mut all_rotors:[Vector3<DistanceUnits>;NUM_ROTORS_VTOL_HYBRID]  = [
             Vector3::new(0.0, ROTOR_ARM_LEN_VTOL_HYBRID, 0.0),
             Vector3::new(0.0, -ROTOR_ARM_LEN_VTOL_HYBRID, 0.0),
             Vector3::new(ROTOR_ARM_LEN_VTOL_HYBRID, 0.0, 0.0),
@@ -195,7 +240,8 @@ lazy_static! {
             ];
 
         //rotate the rotor positions around the Z axis
-        let quarter_rot:UnitQuaternion<f32> = UnitQuaternion::from_euler_angles(0.0,0.0,-PI/4.0);
+        let quarter_rot:UnitQuaternion<DistanceUnits> =
+            UnitQuaternion::from_euler_angles(0.0,0.0,-PI/4.0);
         for i in 0..NUM_ROTORS_VTOL_HYBRID {
             let pos = all_rotors[i];
             all_rotors[i] = quarter_rot * pos;
@@ -379,6 +425,21 @@ use assert_approx_eq::assert_approx_eq;
 
         println!("tookoff at: {} expected: {}",cur_actuator, WEIGHT_BALANCE_POINT);
         assert_approx_eq!(cur_actuator, WEIGHT_BALANCE_POINT, 1.1E-4);
+
+        //verify that since the lift rotors were all matched, there should be zero torque
+        assert_approx_eq!(motion.body_angular_accel.magnitude(), 0.0);
+    }
+
+    #[test]
+    fn test_apply_torques() {
+        let torques: Vector3<TorqueUnits> = Vector3::new(0.0, 0.0, 10.0);
+        let interval: TimeIntervalUnits = 1E-3;
+        let mut state: RigidBodyState = RigidBodyState::new();
+
+        apply_torques_vtol_hybrid(&torques,  interval,&mut state);
+
+        assert_approx_eq!(state.body_angular_accel.magnitude(), 0.0);
+
     }
 
 }

@@ -58,6 +58,10 @@ pub struct RigidBodyState {
 
     /// whether the body's motion is constrained in translation
     pub translation_constrained: [bool; 3],
+
+    /// whether the body's motion is constrained in rotation
+    pub rotation_constrained: [bool; 3],
+
 }
 
 impl RigidBodyState {
@@ -72,7 +76,13 @@ impl RigidBodyState {
             body_angular_accel: Vector3::new(0.0, 0.0, 0.0),
 
             translation_constrained: [false, false, false],
+            rotation_constrained: [false, false, false],
         }
+    }
+
+    /// Is the body rotation constrained?
+    pub fn rotation_locked(&self) -> bool {
+        self.rotation_constrained[0] || self.rotation_constrained[1] || self.rotation_constrained[2]
     }
 }
 
