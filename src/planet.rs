@@ -200,9 +200,13 @@ impl PlanetEarth {
         let parent_cell = EARTH_MAG_TABLE.nearest_neighbor(&search_point).unwrap();
         //println!("closest parent_cell:\n{:?}\n{:?}", parent_cell, search_point);
 
-        self.ref_mag_field[0] = parent_cell.mag_x;
-        self.ref_mag_field[1] = parent_cell.mag_y;
-        self.ref_mag_field[2] = parent_cell.mag_z;
+        // NOAA WMM2015 data is given in nanoteslas,
+        // 1 nanotesla = 1.0E-5 gauss
+        self.ref_mag_field[0] = parent_cell.mag_x * 1E-5;
+        self.ref_mag_field[1] = parent_cell.mag_y * 1E-5;
+        self.ref_mag_field[2] = parent_cell.mag_z * 1E-5;
+
+        //println!("ref_mag_field: {:?}", self.ref_mag_field);
 
     }
 
