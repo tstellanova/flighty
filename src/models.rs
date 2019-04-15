@@ -46,6 +46,8 @@ const MAX_ROTOR_THRUST_VTOL_HYBRID: ForceUnits = MAX_ROTOR_THRUST_WEIGHT_EQUIV_V
 /// the number of lift rotors this model has
 pub const NUM_LIFT_ROTORS_VTOL_HYBRID: usize = 4;
 
+/// yaw torque due to rotor drag
+pub const MAX_ROTOR_DRAG_YAW_TORQUE_VTOL_HYBRID:TorqueUnits = 0.05;
 
 pub const MIN_TAKEOFF_ROTOR_FRAC_VTOL_HYBRID:f32 =
     (VEHICLE_MASS_VTOL_HYBRID/ MAX_ROTOR_THRUST_WEIGHT_EQUIV_VTOL_HYBRID) /
@@ -161,10 +163,21 @@ fn internal_forces_and_torques_vtol_hybrid(actuators: &ActuatorControls, attitud
         let thrust_vec:Vector3<ForceUnits> = Vector3::new(0.0, 0.0, -thrust_force );
         let act_pos =   ROTOR_POSITIONS_VTOL_HYBRID[i];
         //the torque contribution is the thrust crossed with the rotor position in body frame
-        let tork =  act_pos.cross(&thrust_vec);
-        //println!("tf[{}]: {:0.2} tork: {:?} ",i,thrust_force, tork);
-        sum_torks += tork;
-        //TODO add in propeller drag torque, affects rotation about Z axis (yaw)
+        let mut rotor_tork =  act_pos.cross(&thrust_vec);
+        //println!("tf[{}]: {:0.2} rotor_torque: {:?} ",i,thrust_force, rotor_torque);
+
+        //Add in rotor drag torque, affects rotation about Z axis (yaw)
+        //assumes linear scaling of rotor drag
+        //assumes rotors 0 and 1 are CCW, 2 and 3 are CW rotation
+        let rotor_drag_tork:TorqueUnits = if i < 2 {
+            - act*MAX_ROTOR_DRAG_YAW_TORQUE_VTOL_HYBRID
+        }
+        else {
+            act*MAX_ROTOR_DRAG_YAW_TORQUE_VTOL_HYBRID
+        };
+
+        rotor_tork[2] = rotor_drag_tork;
+        sum_torks += rotor_tork;
     }
 
     //sum total rotor thrust force for translation
@@ -584,7 +597,6 @@ use assert_approx_eq::assert_approx_eq;
 
         let mut dynacts:ActuatorControls = [0.0; 16];
 
-
         let upright_quat = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
         let pitch_nose_down_quat = UnitQuaternion::from_euler_angles(0.0, -SMALL_ANGLE, 0.0);
         let pitch_nose_up_quat = UnitQuaternion::from_euler_angles(0.0, SMALL_ANGLE, 0.0);
@@ -612,7 +624,8 @@ use assert_approx_eq::assert_approx_eq;
         }
 
         //torque the body in multiple directions
-        const REF_TILT_TORQUE:TorqueUnits = 0.5686166;//TODO calculate reference torque
+        const REF_TILT_TORQUE:TorqueUnits = 0.5686166;//TODO calculate tilt reference torque
+        const REF_YAW_TORQUE:TorqueUnits = ACTUATOR_FRAC*2.0*MAX_ROTOR_DRAG_YAW_TORQUE_VTOL_HYBRID;
 
         //torque nose down
         dynacts[2] = 0.0; dynacts[0] = 0.0;
@@ -650,16 +663,23 @@ use assert_approx_eq::assert_approx_eq;
         assert_approx_eq!(fortorks.torques.magnitude(), REF_TILT_TORQUE);
         assert_approx_eq!(fortorks.torques[0], REF_TILT_TORQUE);
 
-        //TODO implement rotor drag yaw
         //torque yaw to port (using rotor drag)
-//        dynacts[2] = ACTUATOR_FRAC; dynacts[0] = 0.0;
-//        dynacts[1] = 0.0; dynacts[3] = ACTUATOR_FRAC;
-//        let fortorks = internal_forces_and_torques_vtol_hybrid(&dynacts, &upright_quat);
-//        assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
-//        println!("yaw port torks: {:?}", fortorks.torques);
-//        assert_approx_eq!(fortorks.torques.magnitude(), REF_TILT_TORQUE);
-//        assert_approx_eq!(fortorks.torques[0], REF_TILT_TORQUE);
+        dynacts[2] = ACTUATOR_FRAC; dynacts[0] = 0.0;
+        dynacts[1] = 0.0; dynacts[3] = ACTUATOR_FRAC;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&dynacts, &upright_quat);
+        assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
+        println!("yaw port torks: {:?}", fortorks.torques);
+        assert_approx_eq!(fortorks.torques.magnitude(), REF_YAW_TORQUE);
+        assert_approx_eq!(fortorks.torques[2], REF_YAW_TORQUE);
 
+        //torque yaw to starboard (using rotor drag)
+        dynacts[2] = 0.0; dynacts[0] = ACTUATOR_FRAC;
+        dynacts[1] = ACTUATOR_FRAC; dynacts[3] = 0.0;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&dynacts, &upright_quat);
+        assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
+        println!("yaw starboard torks: {:?}", fortorks.torques);
+        assert_approx_eq!(fortorks.torques.magnitude(), REF_YAW_TORQUE);
+        assert_approx_eq!(fortorks.torques[2], -REF_YAW_TORQUE);
     }
 
 }
