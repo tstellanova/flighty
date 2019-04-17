@@ -140,6 +140,8 @@ fn apply_torques_vtol_hybrid(torques: &Vector3<TorqueUnits>,  interval: TimeInte
             motion.body_angular_position[1],
             motion.body_angular_position[2],
         );
+
+        //println!("attitude_quat: {:?}", motion.attitude_quat);
     }
     else {
         motion.body_angular_velocity = Vector3::zeros();
@@ -595,8 +597,6 @@ use assert_approx_eq::assert_approx_eq;
         const ACTUATOR_FRAC:f32 = 0.5;
         const TOTAL_THRUST: ForceUnits = ACTUATOR_FRAC*MAX_TOTAL_THRUST_VTOL_HYBRID;
 
-        let mut dynacts:ActuatorControls = [0.0; 16];
-
         let upright_quat = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
         let pitch_nose_down_quat = UnitQuaternion::from_euler_angles(0.0, -SMALL_ANGLE, 0.0);
         let pitch_nose_up_quat = UnitQuaternion::from_euler_angles(0.0, SMALL_ANGLE, 0.0);
@@ -615,7 +615,7 @@ use assert_approx_eq::assert_approx_eq;
             yaw_starboard_quat.clone()
         ];
 
-        // first run through a series with perfectly evenly distributed actuator thrust (no torque)
+        // run through a series with perfectly evenly distributed actuator thrust (no torque)
         let acts:ActuatorControls = [ACTUATOR_FRAC; 16];
         for attitude in attitude_series.iter() {
             let fortorks = internal_forces_and_torques_vtol_hybrid(&acts, &attitude);
@@ -627,61 +627,113 @@ use assert_approx_eq::assert_approx_eq;
         const REF_TILT_TORQUE:TorqueUnits = 0.5686166;//TODO calculate tilt reference torque
         const REF_YAW_TORQUE:TorqueUnits = ACTUATOR_FRAC*2.0*MAX_ROTOR_DRAG_YAW_TORQUE_VTOL_HYBRID;
 
+        // quadcopter rotors comprise the first four actuators
+        let mut quad_acts:ActuatorControls = [0.0; 16];
+
         //torque nose down
-        dynacts[2] = 0.0; dynacts[0] = 0.0;
-        dynacts[1] = ACTUATOR_FRAC; dynacts[3] = ACTUATOR_FRAC;
-        let fortorks = internal_forces_and_torques_vtol_hybrid(&dynacts, &upright_quat);
+        quad_acts[2] = 0.0; quad_acts[0] = 0.0;
+        quad_acts[1] = ACTUATOR_FRAC; quad_acts[3] = ACTUATOR_FRAC;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
         assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
         println!("nose down torks: {:?}", fortorks.torques);
         assert_approx_eq!(fortorks.torques.magnitude(), REF_TILT_TORQUE);
         assert_approx_eq!(fortorks.torques[1], -REF_TILT_TORQUE);
 
         //torque nose up
-        dynacts[2] = ACTUATOR_FRAC; dynacts[0] = ACTUATOR_FRAC;
-        dynacts[1] = 0.0; dynacts[3] = 0.0;
-        let fortorks = internal_forces_and_torques_vtol_hybrid(&dynacts, &upright_quat);
+        quad_acts[2] = ACTUATOR_FRAC; quad_acts[0] = ACTUATOR_FRAC;
+        quad_acts[1] = 0.0; quad_acts[3] = 0.0;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
         assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
         println!("nose up torks: {:?}", fortorks.torques);
         assert_approx_eq!(fortorks.torques.magnitude(), REF_TILT_TORQUE);
         assert_approx_eq!(fortorks.torques[1], REF_TILT_TORQUE);
 
         //torque roll to port
-        dynacts[2] = 0.0; dynacts[0] = ACTUATOR_FRAC;
-        dynacts[1] = 0.0; dynacts[3] = ACTUATOR_FRAC;
-        let fortorks = internal_forces_and_torques_vtol_hybrid(&dynacts, &upright_quat);
+        quad_acts[2] = 0.0; quad_acts[0] = ACTUATOR_FRAC;
+        quad_acts[1] = 0.0; quad_acts[3] = ACTUATOR_FRAC;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
         assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
         println!("roll port torks: {:?}", fortorks.torques);
         assert_approx_eq!(fortorks.torques.magnitude(), REF_TILT_TORQUE);
         assert_approx_eq!(fortorks.torques[0], -REF_TILT_TORQUE);
 
         //torque roll to starboard
-        dynacts[2] = ACTUATOR_FRAC; dynacts[0] = 0.0;
-        dynacts[1] = ACTUATOR_FRAC; dynacts[3] = 0.0;
-        let fortorks = internal_forces_and_torques_vtol_hybrid(&dynacts, &upright_quat);
+        quad_acts[2] = ACTUATOR_FRAC; quad_acts[0] = 0.0;
+        quad_acts[1] = ACTUATOR_FRAC; quad_acts[3] = 0.0;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
         assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
         println!("roll starboard torks: {:?}", fortorks.torques);
         assert_approx_eq!(fortorks.torques.magnitude(), REF_TILT_TORQUE);
         assert_approx_eq!(fortorks.torques[0], REF_TILT_TORQUE);
 
         //torque yaw to port (using rotor drag)
-        dynacts[2] = ACTUATOR_FRAC; dynacts[0] = 0.0;
-        dynacts[1] = 0.0; dynacts[3] = ACTUATOR_FRAC;
-        let fortorks = internal_forces_and_torques_vtol_hybrid(&dynacts, &upright_quat);
+        quad_acts[2] = ACTUATOR_FRAC; quad_acts[0] = 0.0;
+        quad_acts[1] = 0.0; quad_acts[3] = ACTUATOR_FRAC;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
         assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
         println!("yaw port torks: {:?}", fortorks.torques);
         assert_approx_eq!(fortorks.torques.magnitude(), REF_YAW_TORQUE);
         assert_approx_eq!(fortorks.torques[2], REF_YAW_TORQUE);
 
         //torque yaw to starboard (using rotor drag)
-        dynacts[2] = 0.0; dynacts[0] = ACTUATOR_FRAC;
-        dynacts[1] = ACTUATOR_FRAC; dynacts[3] = 0.0;
-        let fortorks = internal_forces_and_torques_vtol_hybrid(&dynacts, &upright_quat);
+        quad_acts[2] = 0.0; quad_acts[0] = ACTUATOR_FRAC;
+        quad_acts[1] = ACTUATOR_FRAC; quad_acts[3] = 0.0;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
         assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
         println!("yaw starboard torks: {:?}", fortorks.torques);
         assert_approx_eq!(fortorks.torques.magnitude(), REF_YAW_TORQUE);
         assert_approx_eq!(fortorks.torques[2], -REF_YAW_TORQUE);
     }
 
+
+    #[test]
+    fn test_track_tilt_rotation() {
+        let mut motion = RigidBodyState::new();
+        let enviro = PlanetEarth::default_local_environment();
+        let step_interval:TimeIntervalUnits =  time_base_delta_to_interval(1000 as TimeBaseUnits);
+        const SMALL_ANGLE:f32 = PI/6.0;
+        const ACTUATOR_FRAC:f32 = 0.5;
+
+        // quadcopter rotors comprise the first four actuators
+        let mut quad_acts:ActuatorControls = [0.0; 16];
+
+        //torque nose down
+        quad_acts[2] = 0.0; quad_acts[0] = 0.0;
+        quad_acts[1] = ACTUATOR_FRAC; quad_acts[3] = ACTUATOR_FRAC;
+
+
+        //place vehicle way up in the middle of the air
+        motion.inertial_position = Vector3::new(0.0, 0.0, -500.0);
+
+        // keep actuator controls constant and see how tilt evolves
+        let mut step_count = 0;
+        loop {
+            vtol_hybrid_model_fn(&quad_acts, step_interval, &enviro, &mut motion);
+            let aa = motion.body_angular_accel[1]; //expect pitch forward
+            assert_approx_eq!(aa, -113.72333);//TODO calculate angular accel
+            assert_approx_eq!(motion.body_angular_accel.magnitude(), 113.72333);
+
+            let pitch_angle = motion.body_angular_position[1];
+            if pitch_angle < -SMALL_ANGLE {
+                //tilted nose down significantly
+                let pitch_vel = motion.body_angular_velocity[1];
+                println!("pitched down! {:0.6} vel: {:0.6}", pitch_angle, pitch_vel);
+                assert_approx_eq!(pitch_vel, -10.974310); //TODO calculate ang velocity
+                break;
+            }
+
+            step_count += 1;
+        }
+
+        let upright_quat = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+        let check_attitude = motion.attitude_quat ==  upright_quat;
+        println!("end att quat:\n {:?}\n vs:\n {:?}", motion.attitude_quat, upright_quat);
+        assert_ne!(check_attitude, true);
+
+        println!("nosed down at step: {} expected: {}",step_count, 100);
+        assert_eq!(step_count < 100, true);
+
+    }
 }
 
 
