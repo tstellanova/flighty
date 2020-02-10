@@ -4,7 +4,7 @@ LICENSE: See LICENSE file
 */
 
 
-use nalgebra::{Vector3};
+use nalgebra::{UnitQuaternion, Vector3};
 
 
 pub mod physical_types;
@@ -58,6 +58,13 @@ pub struct RigidBodyState {
 
     /// whether the body's motion is constrained in translation
     pub translation_constrained: [bool; 3],
+
+    /// whether the body's motion is constrained in rotation
+    pub rotation_constrained: [bool; 3],
+
+    /// attitude rotation, derived from body_angular_position
+    pub attitude_quat: UnitQuaternion<f32>,
+
 }
 
 impl RigidBodyState {
@@ -72,7 +79,14 @@ impl RigidBodyState {
             body_angular_accel: Vector3::new(0.0, 0.0, 0.0),
 
             translation_constrained: [false, false, false],
+            rotation_constrained: [false, false, false],
+            attitude_quat: UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0),
         }
+    }
+
+    /// Is the body rotation constrained?
+    pub fn rotation_locked(&self) -> bool {
+        self.rotation_constrained[0] || self.rotation_constrained[1] || self.rotation_constrained[2]
     }
 }
 

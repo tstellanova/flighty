@@ -8,7 +8,9 @@ use crate::RigidBodyState;
 use crate::physical_types::*;
 use crate::planet::{ExternalForceEnvironment, GeoConstraintBox, PlanetEarth};
 
-use nalgebra::{Vector3};
+use nalgebra::{Matrix3, UnitQuaternion, Vector3};
+use std::f32::consts::PI;
+use std::ops::Mul;
 
 pub type DynamicModelFn = fn(
     actuators: &ActuatorControls,
@@ -35,11 +37,7 @@ impl ForcesAndTorques {
 
 ///mass of the simulated vehicle
 pub const VEHICLE_MASS_VTOL_HYBRID: MassUnits = 0.8;
-//const VEHICLE_MOMENT_INERTIA:Matrix3<MomentInertiaUnits> = Matrix3::new(
-//    0.005,  0.0,    0.0,
-//    0.0,    0.005,  0.0,
-//    0.0,    0.0,    0.009
-//);
+
 
 /// rotors are commonly rated in weight-equivalent thrust, eg "grams"
 const MAX_ROTOR_THRUST_WEIGHT_EQUIV_VTOL_HYBRID: MassUnits = 0.82;
@@ -48,15 +46,20 @@ const MAX_ROTOR_THRUST_VTOL_HYBRID: ForceUnits = MAX_ROTOR_THRUST_WEIGHT_EQUIV_V
 /// the number of lift rotors this model has
 pub const NUM_LIFT_ROTORS_VTOL_HYBRID: usize = 4;
 
+/// yaw torque due to rotor drag
+pub const MAX_ROTOR_DRAG_YAW_TORQUE_VTOL_HYBRID:TorqueUnits = 0.05;
 
 pub const MIN_TAKEOFF_ROTOR_FRAC_VTOL_HYBRID:f32 =
     (VEHICLE_MASS_VTOL_HYBRID/ MAX_ROTOR_THRUST_WEIGHT_EQUIV_VTOL_HYBRID) /
         (NUM_LIFT_ROTORS_VTOL_HYBRID as f32);
 
+pub const MAX_TOTAL_THRUST_VTOL_HYBRID: ForceUnits =
+    NUM_LIFT_ROTORS_VTOL_HYBRID as f32 * MAX_ROTOR_THRUST_VTOL_HYBRID;
+
 /// The maximum acceleration achievable by rotors (excludes drag and gravity)
-pub const MAX_ROTOR_ACCEL_VTOL_HYBRID: f32 =
-    (NUM_LIFT_ROTORS_VTOL_HYBRID as f32 * MAX_ROTOR_THRUST_VTOL_HYBRID)/
-        VEHICLE_MASS_VTOL_HYBRID ;
+pub const MAX_ROTOR_ACCEL_VTOL_HYBRID: AccelUnits =
+    MAX_TOTAL_THRUST_VTOL_HYBRID / VEHICLE_MASS_VTOL_HYBRID;
+
 
 /// Actuator outputs -1 .. 1 : Mapping depends on vehicle
 /// Rotor channels will scale from 0..1
@@ -71,52 +74,79 @@ pub fn vtol_hybrid_model_fn (
     enforce_constraints(&enviro.constraint, motion);
 
     // collect internal (actuator) forces
-    let int_fortorks = internal_forces_and_torques_vtol_hybrid(&actuators);
-    // collect external forces (such as gravity and wind)
+    let int_fortorks = internal_forces_and_torques_vtol_hybrid(&actuators,&motion.attitude_quat);
+    // collect external forces (such as gravity, wind, drag)
     let ext_fortorks = external_forces_and_torques_vtol_hybrid(&motion, &enviro);
     // sum all forces
     let sum_fortorks = ForcesAndTorques::sum(&int_fortorks, &ext_fortorks);
 
-    let prev_accel = motion.inertial_accel;
-
-    //update current position and velocity based on prior step state
-    for i in 0..3 {
-        motion.inertial_accel[i] = sum_fortorks.forces[i] / VEHICLE_MASS_VTOL_HYBRID;
-
-        if !motion.translation_constrained[i] {
-            //use trapezoid rule to find new velocity and position from latest accel
-            let dvel = interval * ((prev_accel[i] + motion.inertial_accel[i])/ 2.0);
-            let prev_vel = motion.inertial_velocity[i];
-            motion.inertial_velocity[i] = prev_vel + dvel;
-
-            //use trapezoid rule to find new position from latest vel and prev_vel
-            let dpos = interval * ((prev_vel + motion.inertial_velocity[i])/2.0);
-            motion.inertial_position[i] += dpos;
-
-//            if i == 2 {
-//                println!("pos: {:0.7} prev_accel: {:0.6} cur_accel: {:0.6}",
-//                         motion.inertial_position[2], prev_accel[2], motion.inertial_accel[2]);
-//            }
-
-//            if  (2 == i) && (crate::planet::PlanetEarth::STD_GRAVITY_ACCEL != motion.inertial_accel[2]) {
-//                println!("dvel {:0.3} dpos: {:0.4}", dvel, dpos);
-//                println!("int: {:0.4} pos: {:0.2} a_z: {:0.2} vel: {:0.3}",
-//                        interval,
-//                         motion.inertial_position[2],
-//                         motion.inertial_accel[2],
-//                         motion.inertial_velocity[2]);
-//            }
-        }
-        else {
-            motion.inertial_velocity[i] = 0.0;
-        }
-        //TODO handle torque
-
-    }
+    apply_forces_vtol_hybrid(&sum_fortorks.forces, interval, motion);
+    apply_torques_vtol_hybrid(&sum_fortorks.torques, interval, motion);
 
 
 //    println!("interval: {} accel: {} vel: {} pos: {}", interval,
 //             motion.inertial_accel, motion.inertial_velocity, motion.inertial_position);
+}
+
+/// Apply translation forces to rigid body, changing linear acceleration
+fn apply_forces_vtol_hybrid(forces: &Vector3<ForceUnits>,
+                            interval: TimeIntervalUnits, motion: &mut RigidBodyState) {
+    // update linear acceleration
+    let prev_accel = motion.inertial_accel;
+    motion.inertial_accel =   forces / VEHICLE_MASS_VTOL_HYBRID;
+
+    //update current velocity and position based on prior step state
+    for i in 0..3 {
+        if !motion.translation_constrained[i] {
+            //use trapezoid rule to find new velocity from latest and previous accel
+            let dvel = interval * ((prev_accel[i] + motion.inertial_accel[i]) / 2.0);
+            let prev_vel = motion.inertial_velocity[i];
+            motion.inertial_velocity[i] = prev_vel + dvel;
+
+            //use trapezoid rule to find new position from latest and previous velocity
+            let dpos = interval * ((prev_vel + motion.inertial_velocity[i]) / 2.0);
+            motion.inertial_position[i] += dpos;
+        }
+        else {
+            motion.inertial_velocity[i] = 0.0;
+        }
+    }
+}
+
+
+/// Apply torque to rigid body, changing angular acceleration
+fn apply_torques_vtol_hybrid(torques: &Vector3<TorqueUnits>,  interval: TimeIntervalUnits,
+                             motion: &mut RigidBodyState) {
+    let prev_accel = motion.body_angular_accel;
+
+    //Handle torques if they don't sum to zero
+    if torques.magnitude() > 0.0 {
+        motion.body_angular_accel = INV_MOMENTS_HYBRID_VTOL.mul(torques);
+    }
+
+    if !motion.rotation_locked() {
+        //use trapezoid rule to find new angular velocity from latest accel
+        let dvel = interval*((prev_accel + motion.body_angular_accel)/2.0);
+        let prev_vel = motion.body_angular_velocity;
+        motion.body_angular_velocity = prev_vel + dvel;
+
+        //use trapezoid rule to find new angular position from latest vel and prev_vel
+        let dpos = interval * ((prev_vel + motion.body_angular_velocity)/2.0);
+        motion.body_angular_position += dpos;
+
+        //update pose/attitude
+        motion.attitude_quat = UnitQuaternion::from_euler_angles(
+            motion.body_angular_position[0],
+            motion.body_angular_position[1],
+            motion.body_angular_position[2],
+        );
+
+        //println!("attitude_quat: {:?}", motion.attitude_quat);
+    }
+    else {
+        motion.body_angular_velocity = Vector3::zeros();
+    }
+
 }
 
 
@@ -124,21 +154,45 @@ pub fn vtol_hybrid_model_fn (
 ///
 /// sum all forces and torques of actuators
 ///
-fn internal_forces_and_torques_vtol_hybrid(actuators: &ActuatorControls) -> ForcesAndTorques {
-    //TODO sum torques of actuators
+fn internal_forces_and_torques_vtol_hybrid(actuators: &ActuatorControls, attitude: &UnitQuaternion<f32>) -> ForcesAndTorques {
 
     // only the first N actuators are rotors
     let rotor_acts = &actuators[..NUM_LIFT_ROTORS_VTOL_HYBRID];
-    let body_z_force:ForceUnits = rotor_acts.iter().fold(0.0,
+    let mut sum_torks = Vector3::zeros();
+    for i in 0..NUM_LIFT_ROTORS_VTOL_HYBRID {
+        let act = rotor_acts[i];
+        let thrust_force = act * MAX_ROTOR_THRUST_VTOL_HYBRID;
+        let thrust_vec:Vector3<ForceUnits> = Vector3::new(0.0, 0.0, -thrust_force );
+        let act_pos =   ROTOR_POSITIONS_VTOL_HYBRID[i];
+        //the torque contribution is the thrust crossed with the rotor position in body frame
+        let mut rotor_tork =  act_pos.cross(&thrust_vec);
+        //println!("tf[{}]: {:0.2} rotor_torque: {:?} ",i,thrust_force, rotor_torque);
+
+        //Add in rotor drag torque, affects rotation about Z axis (yaw)
+        //assumes linear scaling of rotor drag
+        //assumes rotors 0 and 1 are CCW, 2 and 3 are CW rotation
+        let rotor_drag_tork:TorqueUnits = if i < 2 {
+            - act*MAX_ROTOR_DRAG_YAW_TORQUE_VTOL_HYBRID
+        }
+        else {
+            act*MAX_ROTOR_DRAG_YAW_TORQUE_VTOL_HYBRID
+        };
+
+        rotor_tork[2] = rotor_drag_tork;
+        sum_torks += rotor_tork;
+    }
+
+    //sum total rotor thrust force for translation
+    let total_thrust:ForceUnits = rotor_acts.iter().fold(0.0,
         |acc, act| acc + act * MAX_ROTOR_THRUST_VTOL_HYBRID
     );
 
-    //TODO properly transform axial_force
-    let axial_force = Vector3::new(0.0, 0.0, -body_z_force);
+    //transform the rotor thrust by the current attitude/pose
+    let attitude_thrust = attitude * Vector3::new(0.0, 0.0, -total_thrust);
 
     ForcesAndTorques {
-        forces: axial_force,
-        torques: Vector3::zeros()
+        forces: attitude_thrust,
+        torques: sum_torks
     }
 }
 
@@ -147,7 +201,7 @@ fn internal_forces_and_torques_vtol_hybrid(actuators: &ActuatorControls) -> Forc
 ///
 fn external_forces_and_torques_vtol_hybrid(_kinematic: &RigidBodyState,
                                            enviro: &ExternalForceEnvironment) -> ForcesAndTorques {
-    //TODO add drag force
+    //TODO add drag force, wind force
     let grav_force = enviro.gravity * VEHICLE_MASS_VTOL_HYBRID;
     let total_force = grav_force;
 
@@ -176,11 +230,75 @@ fn enforce_constraints(constraint: &GeoConstraintBox, motion: &mut RigidBodyStat
         motion.inertial_position[2] = constraint.minimum[2];
     }
     else {
-        //unconstrain Z
+        //unconstrain Z translation
         motion.translation_constrained[2] = false;
     }
+
+    //TODO what about travel on x-y plane, with unconstrained Yaw?
+    if motion.translation_constrained[2] {
+        //constrain rotation
+        motion.rotation_constrained[0] = true;
+        motion.rotation_constrained[1] = true;
+        motion.rotation_constrained[2] = true;
+    }
+    else {
+        //unconstrain rotation
+        motion.rotation_constrained[0] = false;
+        motion.rotation_constrained[1] = false;
+        motion.rotation_constrained[2] = false;
+    }
+
 }
 
+
+const NUM_ROTORS_VTOL_HYBRID: usize = 4;
+const ROTOR_ARM_LEN_VTOL_HYBRID: DistanceUnits = 100E-3;
+
+const M00_MOMENT_VTOL_HYBRID:MomentInertiaUnits = 0.005;
+const M11_MOMENT_VTOL_HYBRID:MomentInertiaUnits = 0.005;
+const M22_MOMENT_VTOL_HYBRID:MomentInertiaUnits = 0.009;
+
+lazy_static! {
+
+    /// The body-frame positions of the lift rotors for this vehicle
+    static ref ROTOR_POSITIONS_VTOL_HYBRID: [Vector3<DistanceUnits>;NUM_ROTORS_VTOL_HYBRID]  = {
+        //initial rotor positions are simple plus-shape:
+        //   0
+        // 2 + 3
+        //   1
+        let mut all_rotors:[Vector3<DistanceUnits>;NUM_ROTORS_VTOL_HYBRID]  = [
+            Vector3::new(0.0, ROTOR_ARM_LEN_VTOL_HYBRID, 0.0),
+            Vector3::new(0.0, -ROTOR_ARM_LEN_VTOL_HYBRID, 0.0),
+            Vector3::new(ROTOR_ARM_LEN_VTOL_HYBRID, 0.0, 0.0),
+            Vector3::new(-ROTOR_ARM_LEN_VTOL_HYBRID, 0.0, 0.0),
+            ];
+
+        //rotate the rotor positions a quarter turn around the Z axis:
+        //  2 0
+        //   X
+        //  1 3
+        let quarter_rot:UnitQuaternion<DistanceUnits> =
+            UnitQuaternion::from_euler_angles(0.0,0.0,-PI/4.0);
+        for i in 0..NUM_ROTORS_VTOL_HYBRID {
+            let pos = all_rotors[i];
+            all_rotors[i] = quarter_rot * pos;
+        }
+
+        all_rotors
+    };
+
+    /// Moments of inertia for the vehicle
+    static ref MOMENTS_HYBRID_VTOL:Matrix3<MomentInertiaUnits> = Matrix3::new(
+        M00_MOMENT_VTOL_HYBRID,  0.0,    0.0,
+        0.0,    M11_MOMENT_VTOL_HYBRID,  0.0,
+        0.0,    0.0,    M22_MOMENT_VTOL_HYBRID
+    );
+
+    /// Used for finding angular acceleration from torques
+    static ref INV_MOMENTS_HYBRID_VTOL:Matrix3<MomentInertiaUnits> =
+        MOMENTS_HYBRID_VTOL.pseudo_inverse(1E-6).unwrap();
+
+}
 
 
 /*
@@ -199,6 +317,15 @@ mod tests {
 use super::*;
 use crate::planet::{Planetary, PlanetEarth};
 use assert_approx_eq::assert_approx_eq;
+
+//    #[test]
+//    fn examine_rotor_positions() {
+//        for i in 0..4 {
+//            let pos = ROTOR_POSITIONS_VTOL_HYBRID[i];
+//            println!("pos: {:?}", pos);
+//        }
+//        assert_eq!(false, true);
+//    }
 
     const HIGH_ALTITUDE_SAMPLE: DistanceUnits = -500.0; //start at 500m up
 
@@ -339,8 +466,274 @@ use assert_approx_eq::assert_approx_eq;
 
         println!("tookoff at: {} expected: {}",cur_actuator, WEIGHT_BALANCE_POINT);
         assert_approx_eq!(cur_actuator, WEIGHT_BALANCE_POINT, 1.1E-4);
+
+        //verify that since the lift rotors were all matched, there should be zero torque
+        assert_approx_eq!(motion.body_angular_accel.magnitude(), 0.0);
     }
 
+    #[test]
+    fn test_apply_forces_vtol_hybrid() {
+        //verify that when we apply forces to various axes, we get the expected linear accel
+
+        let interval: TimeIntervalUnits = 1E-3;
+        const KNOWN_FORCE:ForceUnits = 10.0;
+        let expected_accel = KNOWN_FORCE / VEHICLE_MASS_VTOL_HYBRID;
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(KNOWN_FORCE, 0.0, 0.0);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la00: {:?} expected: {:0.4}", state.inertial_accel,expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[0], expected_accel);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(-KNOWN_FORCE, 0.0, 0.0);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la01: {:?} expected: {:0.4}", state.inertial_accel,-expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[0], -expected_accel);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(0.0, KNOWN_FORCE, 0.0);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la10: {:?} expected: {:0.4}", state.inertial_accel,expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[1], expected_accel);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(0.0, -KNOWN_FORCE, 0.0);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la11: {:?} expected: {:0.4}", state.inertial_accel,-expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[1], -expected_accel);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(0.0, 0.0, KNOWN_FORCE);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la20: {:?} expected: {:0.4}", state.inertial_accel,expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[2], expected_accel);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let forces: Vector3<ForceUnits> = Vector3::new(0.0, 0.0, -KNOWN_FORCE);
+        apply_forces_vtol_hybrid(&forces, interval, &mut state);
+        println!("la21: {:?} expected: {:0.4}", state.inertial_accel,-expected_accel);
+        assert_approx_eq!(state.inertial_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.inertial_accel[2], -expected_accel);
+
+    }
+
+    #[test]
+    fn test_apply_torques_vtol_hybrid() {
+        // Verify that when we apply torques to various axes, we get the expected angular accel
+        let interval: TimeIntervalUnits = 1E-3;
+        const KNOWN_TORQUE:TorqueUnits = 10.0;
+
+        let expected_accel = KNOWN_TORQUE / M00_MOMENT_VTOL_HYBRID;
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let torques: Vector3<TorqueUnits> = Vector3::new(KNOWN_TORQUE, 0.0, 0.0);
+        apply_torques_vtol_hybrid(&torques,  interval,&mut state);
+        println!("aa00: {:?} expected: {:0.4}", state.body_angular_accel,expected_accel);
+        assert_approx_eq!(state.body_angular_accel.magnitude(), expected_accel);
+        assert_approx_eq!(state.body_angular_accel[0],expected_accel);
+        assert_approx_eq!(state.body_angular_accel[1],0.0);
+        assert_approx_eq!(state.body_angular_accel[2],0.0);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let torques: Vector3<TorqueUnits> = Vector3::new(-KNOWN_TORQUE, 0.0, 0.0);
+        apply_torques_vtol_hybrid(&torques,  interval,&mut state);
+        println!("aa01: {:?} expected: {:0.4}", state.body_angular_accel,-expected_accel);
+        assert_approx_eq!(state.body_angular_accel.magnitude(), expected_accel, 1E-3);
+        assert_approx_eq!(state.body_angular_accel[0],-expected_accel);
+
+        let expected_accel = KNOWN_TORQUE / M11_MOMENT_VTOL_HYBRID;
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let torques: Vector3<TorqueUnits> = Vector3::new(0.0, KNOWN_TORQUE, 0.0);
+        apply_torques_vtol_hybrid(&torques,  interval,&mut state);
+        println!("aa10: {:?} expected: {:0.4}", state.body_angular_accel,expected_accel);
+        assert_approx_eq!(state.body_angular_accel.magnitude(), expected_accel, 1E-3);
+        assert_approx_eq!(state.body_angular_accel[1],expected_accel);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let torques: Vector3<TorqueUnits> = Vector3::new(0.0, -KNOWN_TORQUE, 0.0);
+        apply_torques_vtol_hybrid(&torques,  interval,&mut state);
+        println!("aa11: {:?} expected: {:0.4}", state.body_angular_accel,-expected_accel);
+        assert_approx_eq!(state.body_angular_accel.magnitude(), expected_accel, 1E-3);
+        assert_approx_eq!(state.body_angular_accel[1],-expected_accel);
+
+        let expected_accel = KNOWN_TORQUE / M22_MOMENT_VTOL_HYBRID;
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let torques: Vector3<TorqueUnits> = Vector3::new(0.0, 0.0, KNOWN_TORQUE);
+        apply_torques_vtol_hybrid(&torques,  interval,&mut state);
+        println!("aa20: {:?} expected: {:0.4}", state.body_angular_accel,expected_accel);
+        assert_approx_eq!(state.body_angular_accel.magnitude(), expected_accel, 1E-3);
+        assert_approx_eq!(state.body_angular_accel[2],expected_accel, 1E-3);
+
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let torques: Vector3<TorqueUnits> = Vector3::new(0.0, 0.0, -KNOWN_TORQUE);
+        apply_torques_vtol_hybrid(&torques,  interval,&mut state);
+        println!("aa21: {:?} expected: {:0.4}", state.body_angular_accel,-expected_accel);
+        assert_approx_eq!(state.body_angular_accel.magnitude(), expected_accel, 1E-3);
+        assert_approx_eq!(state.body_angular_accel[2],-expected_accel, 1E-3);
+
+        //test combined multi-axis torque
+        let expected_accel0 = KNOWN_TORQUE / M00_MOMENT_VTOL_HYBRID;
+        let expected_accel1 = KNOWN_TORQUE / M11_MOMENT_VTOL_HYBRID;
+        let expected_accel2 = KNOWN_TORQUE / M22_MOMENT_VTOL_HYBRID;
+        let mut state: RigidBodyState = RigidBodyState::new();
+        let torques: Vector3<TorqueUnits> = Vector3::new(KNOWN_TORQUE, KNOWN_TORQUE, KNOWN_TORQUE);
+        apply_torques_vtol_hybrid(&torques,  interval,&mut state);
+        println!("aaZZ: {:?} expected: [{:0.4},{:0.4},{:0.4}] ", state.body_angular_accel,
+                 expected_accel0, expected_accel1 ,expected_accel2);
+
+        assert_approx_eq!(state.body_angular_accel[0],expected_accel0, 1E-3);
+        assert_approx_eq!(state.body_angular_accel[1],expected_accel1, 1E-3);
+        assert_approx_eq!(state.body_angular_accel[2],expected_accel2, 1E-3);
+    }
+
+    #[test]
+    fn test_internal_forces_and_torques_vtol_hybrid() {
+        const SMALL_ANGLE:f32 = PI/6.0;
+        const ACTUATOR_FRAC:f32 = 0.5;
+        const TOTAL_THRUST: ForceUnits = ACTUATOR_FRAC*MAX_TOTAL_THRUST_VTOL_HYBRID;
+
+        let upright_quat = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+        let pitch_nose_down_quat = UnitQuaternion::from_euler_angles(0.0, -SMALL_ANGLE, 0.0);
+        let pitch_nose_up_quat = UnitQuaternion::from_euler_angles(0.0, SMALL_ANGLE, 0.0);
+        let roll_port_quat = UnitQuaternion::from_euler_angles(-SMALL_ANGLE, 0.0, 0.0);
+        let roll_starboard_quat = UnitQuaternion::from_euler_angles(SMALL_ANGLE, 0.0, 0.0);
+        let yaw_port_quat = UnitQuaternion::from_euler_angles(0.0, 0.0, -SMALL_ANGLE);
+        let yaw_starboard_quat = UnitQuaternion::from_euler_angles(0.0, 0.0, SMALL_ANGLE);
+
+        let attitude_series = [
+            upright_quat.clone(),
+            pitch_nose_down_quat.clone(),
+            pitch_nose_up_quat.clone(),
+            roll_port_quat.clone(),
+            roll_starboard_quat.clone(),
+            yaw_port_quat.clone(),
+            yaw_starboard_quat.clone()
+        ];
+
+        // run through a series with perfectly evenly distributed actuator thrust (no torque)
+        let acts:ActuatorControls = [ACTUATOR_FRAC; 16];
+        for attitude in attitude_series.iter() {
+            let fortorks = internal_forces_and_torques_vtol_hybrid(&acts, &attitude);
+            assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST, 2E-6);
+            assert_approx_eq!(fortorks.torques.magnitude(), 0.0);
+        }
+
+        //torque the body in multiple directions
+        const REF_TILT_TORQUE:TorqueUnits = 0.5686166;//TODO calculate tilt reference torque
+        const REF_YAW_TORQUE:TorqueUnits = ACTUATOR_FRAC*2.0*MAX_ROTOR_DRAG_YAW_TORQUE_VTOL_HYBRID;
+
+        // quadcopter rotors comprise the first four actuators
+        let mut quad_acts:ActuatorControls = [0.0; 16];
+
+        //torque nose down
+        quad_acts[2] = 0.0; quad_acts[0] = 0.0;
+        quad_acts[1] = ACTUATOR_FRAC; quad_acts[3] = ACTUATOR_FRAC;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
+        assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
+        println!("nose down torks: {:?}", fortorks.torques);
+        assert_approx_eq!(fortorks.torques.magnitude(), REF_TILT_TORQUE);
+        assert_approx_eq!(fortorks.torques[1], -REF_TILT_TORQUE);
+
+        //torque nose up
+        quad_acts[2] = ACTUATOR_FRAC; quad_acts[0] = ACTUATOR_FRAC;
+        quad_acts[1] = 0.0; quad_acts[3] = 0.0;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
+        assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
+        println!("nose up torks: {:?}", fortorks.torques);
+        assert_approx_eq!(fortorks.torques.magnitude(), REF_TILT_TORQUE);
+        assert_approx_eq!(fortorks.torques[1], REF_TILT_TORQUE);
+
+        //torque roll to port
+        quad_acts[2] = 0.0; quad_acts[0] = ACTUATOR_FRAC;
+        quad_acts[1] = 0.0; quad_acts[3] = ACTUATOR_FRAC;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
+        assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
+        println!("roll port torks: {:?}", fortorks.torques);
+        assert_approx_eq!(fortorks.torques.magnitude(), REF_TILT_TORQUE);
+        assert_approx_eq!(fortorks.torques[0], -REF_TILT_TORQUE);
+
+        //torque roll to starboard
+        quad_acts[2] = ACTUATOR_FRAC; quad_acts[0] = 0.0;
+        quad_acts[1] = ACTUATOR_FRAC; quad_acts[3] = 0.0;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
+        assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
+        println!("roll starboard torks: {:?}", fortorks.torques);
+        assert_approx_eq!(fortorks.torques.magnitude(), REF_TILT_TORQUE);
+        assert_approx_eq!(fortorks.torques[0], REF_TILT_TORQUE);
+
+        //torque yaw to port (using rotor drag)
+        quad_acts[2] = ACTUATOR_FRAC; quad_acts[0] = 0.0;
+        quad_acts[1] = 0.0; quad_acts[3] = ACTUATOR_FRAC;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
+        assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
+        println!("yaw port torks: {:?}", fortorks.torques);
+        assert_approx_eq!(fortorks.torques.magnitude(), REF_YAW_TORQUE);
+        assert_approx_eq!(fortorks.torques[2], REF_YAW_TORQUE);
+
+        //torque yaw to starboard (using rotor drag)
+        quad_acts[2] = 0.0; quad_acts[0] = ACTUATOR_FRAC;
+        quad_acts[1] = ACTUATOR_FRAC; quad_acts[3] = 0.0;
+        let fortorks = internal_forces_and_torques_vtol_hybrid(&quad_acts, &upright_quat);
+        assert_approx_eq!(fortorks.forces.magnitude(), TOTAL_THRUST/2.0, 2E-6);
+        println!("yaw starboard torks: {:?}", fortorks.torques);
+        assert_approx_eq!(fortorks.torques.magnitude(), REF_YAW_TORQUE);
+        assert_approx_eq!(fortorks.torques[2], -REF_YAW_TORQUE);
+    }
+
+
+    #[test]
+    fn test_track_tilt_rotation() {
+        let mut motion = RigidBodyState::new();
+        let enviro = PlanetEarth::default_local_environment();
+        let step_interval:TimeIntervalUnits =  time_base_delta_to_interval(1000 as TimeBaseUnits);
+        const SMALL_ANGLE:f32 = PI/6.0;
+        const ACTUATOR_FRAC:f32 = 0.5;
+
+        // quadcopter rotors comprise the first four actuators
+        let mut quad_acts:ActuatorControls = [0.0; 16];
+
+        //torque nose down
+        quad_acts[2] = 0.0; quad_acts[0] = 0.0;
+        quad_acts[1] = ACTUATOR_FRAC; quad_acts[3] = ACTUATOR_FRAC;
+
+
+        //place vehicle way up in the middle of the air
+        motion.inertial_position = Vector3::new(0.0, 0.0, -500.0);
+
+        // keep actuator controls constant and see how tilt evolves
+        let mut step_count = 0;
+        loop {
+            vtol_hybrid_model_fn(&quad_acts, step_interval, &enviro, &mut motion);
+            let aa = motion.body_angular_accel[1]; //expect pitch forward
+            assert_approx_eq!(aa, -113.72333);//TODO calculate angular accel
+            assert_approx_eq!(motion.body_angular_accel.magnitude(), 113.72333);
+
+            let pitch_angle = motion.body_angular_position[1];
+            if pitch_angle < -SMALL_ANGLE {
+                //tilted nose down significantly
+                let pitch_vel = motion.body_angular_velocity[1];
+                println!("pitched down! {:0.6} vel: {:0.6}", pitch_angle, pitch_vel);
+                assert_approx_eq!(pitch_vel, -10.974310); //TODO calculate ang velocity
+                break;
+            }
+
+            step_count += 1;
+        }
+
+        let upright_quat = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+        let check_attitude = motion.attitude_quat ==  upright_quat;
+        println!("end att quat:\n {:?}\n vs:\n {:?}", motion.attitude_quat, upright_quat);
+        assert_ne!(check_attitude, true);
+
+        println!("nosed down at step: {} expected: {}",step_count, 100);
+        assert_eq!(step_count < 100, true);
+
+    }
 }
 
 
